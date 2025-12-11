@@ -1,26 +1,58 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { BrowserProvider } from 'ethers';
-import { switchNetwork } from '@/lib/arc-network';
-import { Wallet, Loader2 } from 'lucide-react';
+import { switchNetwork, ARC_TESTNET } from '@/lib/arc-network';
+import { Wallet, Loader2, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account: string | null) => void }) {
   const [account, setAccount] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [wrongNetwork, setWrongNetwork] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     checkConnection();
+    
+    if (window.ethereum) {
+      window.ethereum.on('chainChanged', (chainId: string) => {
+        checkNetwork(chainId);
+      });
+      window.ethereum.on('accountsChanged', (accounts: string[]) => {
+        if (accounts.length > 0) {
+            setAccount(accounts[0]);
+            onAccountChange?.(accounts[0]);
+        } else {
+            setAccount(null);
+            onAccountChange?.(null);
+        }
+      });
+    }
   }, []);
+
+  const checkNetwork = async (chainId: string) => {
+    // 0x4CEF22 is 5042002
+    if (chainId.toLowerCase() !== ARC_TESTNET.chainId.toLowerCase()) {
+        setWrongNetwork(true);
+    } else {
+        setWrongNetwork(false);
+    }
+  };
 
   const checkConnection = async () => {
     if (window.ethereum) {
       const provider = new BrowserProvider(window.ethereum);
-      const accounts = await provider.listAccounts();
-      if (accounts.length > 0) {
-        setAccount(accounts[0].address);
-        onAccountChange?.(accounts[0].address);
+      try {
+        const accounts = await provider.listAccounts();
+        if (accounts.length > 0) {
+            setAccount(accounts[0].address);
+            onAccountChange?.(accounts[0].address);
+            
+            const network = await provider.getNetwork();
+            checkNetwork("0x" + network.chainId.toString(16));
+        }
+      } catch (e) {
+        console.error("Error checking connection", e);
       }
     }
   };
@@ -44,6 +76,7 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
       
       // Switch to Arc Testnet immediately
       await switchNetwork();
+      setWrongNetwork(false);
       
       toast({
         title: "Connected",
@@ -64,6 +97,24 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
   const formatAddress = (addr: string) => {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
+  
+  const handleSwitch = async () => {
+      await switchNetwork();
+      setWrongNetwork(false);
+  };
+
+  if (account && wrongNetwork) {
+      return (
+        <Button 
+          onClick={handleSwitch} 
+          variant="destructive"
+          className="font-bold font-display tracking-wide animate-pulse"
+        >
+          <AlertCircle className="mr-2 h-4 w-4" />
+          SWITCH NETWORK
+        </Button>
+      );
+  }
 
   return (
     <Button 
@@ -79,11 +130,4 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
       {account ? formatAddress(account) : "CONNECT WALLET"}
     </Button>
   );
-}
-
-// Add types for window.ethereum
-declare global {
-  interface Window {
-    ethereum: any;
-  }
 }
