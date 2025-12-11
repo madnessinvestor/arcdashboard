@@ -1,97 +1,163 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { ShieldAlert, Loader2, RefreshCw, ShieldOff } from "lucide-react";
+import { ShieldAlert, Loader2, RefreshCw, ShieldOff, AlertTriangle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { BrowserProvider, Contract } from "ethers";
-import { Input } from "@/components/ui/input";
-import { switchNetwork } from "@/lib/arc-network";
+import { BrowserProvider, Contract, JsonRpcProvider, ethers } from "ethers";
+import { switchNetwork, ARC_TESTNET } from "@/lib/arc-network";
 
-interface Approval {
+interface TokenApproval {
   id: string;
-  contractName: string;
-  contractAddress: string;
-  asset: string;
+  tokenAddress: string;
+  tokenName: string;
+  tokenSymbol: string;
   spenderAddress: string;
+  allowance: string;
 }
 
 interface TokenItem {
   contractAddress: string;
   name: string;
   symbol: string;
-  balance: string;
-  decimals: string;
 }
 
+const ERC20_ABI = [
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "event Approval(address indexed owner, address indexed spender, uint256 value)"
+];
+
+const APPROVAL_TOPIC = "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
+
 export function ApprovalList({ account }: { account: string | null }) {
-  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [approvals, setApprovals] = useState<TokenApproval[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [revokingTokens, setRevokingTokens] = useState<Set<string>>(new Set());
-  const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set());
+  const [revokingIds, setRevokingIds] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchRevoking, setIsBatchRevoking] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     if (account) {
-      fetchApprovals();
+      scanApprovals();
+    } else {
+      setApprovals([]);
     }
   }, [account]);
 
-  const fetchApprovals = async () => {
+  const scanApprovals = async () => {
     if (!account) return;
     setIsLoading(true);
+    setApprovals([]);
     
     try {
-      const response = await fetch(`https://testnet.arcscan.app/api?module=account&action=tokenlist&address=${account}`);
-      const data = await response.json();
+      const provider = new JsonRpcProvider(ARC_TESTNET.rpcUrls[0]);
       
-      if (data.result && Array.isArray(data.result)) {
-        const mappedApprovals: Approval[] = data.result.map((token: TokenItem) => ({
-          id: token.contractAddress,
-          contractName: token.name,
-          contractAddress: token.contractAddress,
-          asset: token.symbol,
-          spenderAddress: ''
-        }));
-        setApprovals(mappedApprovals);
-      } else {
+      const tokenResponse = await fetch(
+        `https://testnet.arcscan.app/api?module=account&action=tokenlist&address=${account}`
+      );
+      const tokenData = await tokenResponse.json();
+      
+      if (!tokenData.result || !Array.isArray(tokenData.result)) {
         setApprovals([]);
+        return;
       }
+
+      const tokens: TokenItem[] = tokenData.result;
+      const foundApprovals: TokenApproval[] = [];
+
+      for (const token of tokens) {
+        try {
+          const paddedOwner = ethers.zeroPadValue(account.toLowerCase(), 32);
+          
+          let logs;
+          try {
+            logs = await provider.getLogs({
+              address: token.contractAddress,
+              topics: [APPROVAL_TOPIC, paddedOwner],
+              fromBlock: 0,
+              toBlock: 'latest'
+            });
+          } catch (e) {
+            logs = await provider.getLogs({
+              address: token.contractAddress,
+              topics: [APPROVAL_TOPIC, paddedOwner],
+              fromBlock: 'latest'
+            });
+          }
+
+          const spenders = new Set<string>();
+          for (const log of logs) {
+            if (log.topics[2]) {
+              const spender = ethers.getAddress('0x' + log.topics[2].slice(26));
+              spenders.add(spender);
+            }
+          }
+
+          const contract = new Contract(token.contractAddress, ERC20_ABI, provider);
+          
+          for (const spender of Array.from(spenders)) {
+            try {
+              const allowance = await contract.allowance(account, spender);
+              if (allowance > BigInt(0)) {
+                foundApprovals.push({
+                  id: `${token.contractAddress}-${spender}`,
+                  tokenAddress: token.contractAddress,
+                  tokenName: token.name || 'Unknown Token',
+                  tokenSymbol: token.symbol || '???',
+                  spenderAddress: spender,
+                  allowance: allowance.toString()
+                });
+              }
+            } catch (e) {
+              console.error(`Error checking allowance for ${spender}:`, e);
+            }
+          }
+        } catch (e) {
+          console.error(`Error scanning token ${token.contractAddress}:`, e);
+        }
+      }
+
+      setApprovals(foundApprovals);
+      
+      if (foundApprovals.length === 0) {
+        toast({ 
+          title: "Scan Complete", 
+          description: "No active approvals found"
+        });
+      } else {
+        toast({ 
+          title: "Scan Complete", 
+          description: `Found ${foundApprovals.length} active approval(s)`
+        });
+      }
+      
     } catch (error) {
-      console.error("Failed to fetch approvals", error);
-      setApprovals([]);
+      console.error("Failed to scan approvals", error);
+      toast({ 
+        title: "Scan Failed", 
+        description: "Could not scan for approvals",
+        variant: "destructive"
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const updateSpenderAddress = (tokenAddress: string, spender: string) => {
-    setApprovals(prev => prev.map(a => 
-      a.contractAddress === tokenAddress ? { ...a, spenderAddress: spender } : a
-    ));
-  };
-
-  const handleRevokeSingle = async (tokenAddress: string, spenderAddress: string) => {
-    if (!spenderAddress) {
-      toast({ 
-        title: "Spender Required", 
-        description: "Enter the spender address for this token",
-        variant: "destructive" 
-      });
-      return;
-    }
-
+  const handleRevoke = async (approval: TokenApproval) => {
     if (!window.ethereum || !account) {
       toast({ 
         title: "Wallet Not Connected", 
-        description: "Please connect your wallet first",
+        description: "Please connect your wallet",
         variant: "destructive" 
       });
       return;
     }
 
-    setRevokingTokens(prev => new Set(prev).add(tokenAddress));
+    setRevokingIds(prev => new Set(prev).add(approval.id));
     
     try {
       await switchNetwork();
@@ -99,18 +165,19 @@ export function ApprovalList({ account }: { account: string | null }) {
       const provider = new BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       
-      const ABI = ["function approve(address spender, uint256 amount) external returns (bool)"];
-      const contract = new Contract(tokenAddress, ABI, signer);
-
-      const tx = await contract.approve(spenderAddress, 0);
+      const contract = new Contract(approval.tokenAddress, ERC20_ABI, signer);
+      const tx = await contract.approve(approval.spenderAddress, 0);
+      
       toast({ title: "Transaction Sent", description: "Confirm in your wallet" });
       
       await tx.wait();
       
       toast({ 
-        title: "Revoke Successful", 
-        description: `Revoked permission for ${spenderAddress.slice(0,6)}...${spenderAddress.slice(-4)}`
+        title: "Revoked", 
+        description: `${approval.tokenSymbol} approval revoked`
       });
+
+      setApprovals(prev => prev.filter(a => a.id !== approval.id));
       
     } catch (err: any) {
       console.error(err);
@@ -120,32 +187,23 @@ export function ApprovalList({ account }: { account: string | null }) {
         toast({ title: "Failed", description: err.message, variant: "destructive" });
       }
     } finally {
-      setRevokingTokens(prev => {
+      setRevokingIds(prev => {
         const next = new Set(prev);
-        next.delete(tokenAddress);
+        next.delete(approval.id);
         return next;
       });
     }
   };
 
-  const handleRevokeBatch = async () => {
-    const tokensToRevoke = approvals.filter(a => 
-      selectedTokens.has(a.contractAddress) && a.spenderAddress
-    );
-
-    if (tokensToRevoke.length === 0) {
-      toast({ 
-        title: "No Valid Selection", 
-        description: "Select tokens and enter spender addresses",
-        variant: "destructive" 
-      });
-      return;
-    }
+  const handleBatchRevoke = async () => {
+    const toRevoke = approvals.filter(a => selectedIds.has(a.id));
+    
+    if (toRevoke.length === 0) return;
 
     if (!window.ethereum || !account) {
       toast({ 
         title: "Wallet Not Connected", 
-        description: "Please connect your wallet first",
+        description: "Please connect your wallet",
         variant: "destructive" 
       });
       return;
@@ -159,27 +217,28 @@ export function ApprovalList({ account }: { account: string | null }) {
       const provider = new BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       
-      const ABI = ["function approve(address spender, uint256 amount) external returns (bool)"];
-      
       let successCount = 0;
+      const revokedIds: string[] = [];
 
-      for (const token of tokensToRevoke) {
+      for (const approval of toRevoke) {
         try {
-          const contract = new Contract(token.contractAddress, ABI, signer);
-          const tx = await contract.approve(token.spenderAddress, 0);
+          const contract = new Contract(approval.tokenAddress, ERC20_ABI, signer);
+          const tx = await contract.approve(approval.spenderAddress, 0);
           await tx.wait();
           successCount++;
+          revokedIds.push(approval.id);
         } catch (err) {
-          console.error(`Failed to revoke ${token.contractAddress}:`, err);
+          console.error(`Failed to revoke ${approval.id}:`, err);
         }
       }
       
       toast({ 
         title: "Batch Complete", 
-        description: `Revoked ${successCount}/${tokensToRevoke.length} tokens`
+        description: `Revoked ${successCount}/${toRevoke.length} approvals`
       });
 
-      setSelectedTokens(new Set());
+      setApprovals(prev => prev.filter(a => !revokedIds.includes(a.id)));
+      setSelectedIds(new Set());
       
     } catch (err: any) {
       console.error(err);
@@ -189,33 +248,46 @@ export function ApprovalList({ account }: { account: string | null }) {
     }
   };
 
-  const toggleTokenSelection = (tokenAddress: string) => {
-    const newSelected = new Set(selectedTokens);
-    if (newSelected.has(tokenAddress)) {
-      newSelected.delete(tokenAddress);
+  const toggleSelection = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
     } else {
-      newSelected.add(tokenAddress);
+      newSelected.add(id);
     }
-    setSelectedTokens(newSelected);
+    setSelectedIds(newSelected);
   };
 
   const toggleSelectAll = () => {
-    if (selectedTokens.size === approvals.length) {
-      setSelectedTokens(new Set());
+    if (selectedIds.size === approvals.length) {
+      setSelectedIds(new Set());
     } else {
-      setSelectedTokens(new Set(approvals.map(a => a.contractAddress)));
+      setSelectedIds(new Set(approvals.map(a => a.id)));
     }
   };
 
-  const selectedWithSpender = approvals.filter(a => 
-    selectedTokens.has(a.contractAddress) && a.spenderAddress
-  ).length;
+  const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground">Scanning Arc Testnet for tokens...</p>
+        <p className="text-muted-foreground">Scanning blockchain for approvals...</p>
+        <p className="text-xs text-muted-foreground">This may take a moment</p>
+      </div>
+    );
+  }
+
+  if (!account) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+          <ShieldAlert size={32} className="text-primary" />
+        </div>
+        <h3 className="text-2xl font-display font-bold text-white">Connect Wallet</h3>
+        <p className="text-muted-foreground max-w-md">
+          Connect your wallet to scan for token approvals
+        </p>
       </div>
     );
   }
@@ -223,15 +295,15 @@ export function ApprovalList({ account }: { account: string | null }) {
   if (approvals.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-          <ShieldAlert size={32} className="text-primary" />
+        <div className="h-16 w-16 rounded-full bg-green-500/10 flex items-center justify-center border border-green-500/20">
+          <ShieldOff size={32} className="text-green-500" />
         </div>
-        <h3 className="text-2xl font-display font-bold text-white">No Tokens Found</h3>
+        <h3 className="text-2xl font-display font-bold text-white">No Active Approvals</h3>
         <p className="text-muted-foreground max-w-md mb-4">
-          No tokens found in your wallet.
+          No token approvals found for your wallet
         </p>
-        <Button variant="outline" onClick={fetchApprovals} className="gap-2" data-testid="button-refresh">
-          <RefreshCw size={14} /> Refresh
+        <Button variant="outline" onClick={scanApprovals} className="gap-2" data-testid="button-refresh">
+          <RefreshCw size={14} /> Scan Again
         </Button>
       </div>
     );
@@ -242,17 +314,17 @@ export function ApprovalList({ account }: { account: string | null }) {
       <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
         <div className="flex gap-4 flex-wrap">
           <Button variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20">
-            My Tokens ({approvals.length})
+            Active Approvals ({approvals.length})
           </Button>
-          <Button variant="ghost" onClick={fetchApprovals} className="text-muted-foreground hover:text-primary gap-2" data-testid="button-refresh-list">
-            <RefreshCw size={14} /> Refresh
+          <Button variant="ghost" onClick={scanApprovals} className="text-muted-foreground hover:text-primary gap-2" data-testid="button-scan">
+            <RefreshCw size={14} /> Rescan
           </Button>
         </div>
 
-        {selectedTokens.size > 0 && (
+        {selectedIds.size > 0 && (
           <Button 
-            onClick={handleRevokeBatch} 
-            disabled={isBatchRevoking || selectedWithSpender === 0}
+            onClick={handleBatchRevoke} 
+            disabled={isBatchRevoking}
             className="bg-primary text-black hover:bg-primary/90 font-bold"
             data-testid="button-revoke-batch"
           >
@@ -264,7 +336,7 @@ export function ApprovalList({ account }: { account: string | null }) {
             ) : (
               <>
                 <ShieldOff className="mr-2 h-4 w-4" />
-                Revoke Selected ({selectedWithSpender})
+                Revoke Selected ({selectedIds.size})
               </>
             )}
           </Button>
@@ -277,14 +349,13 @@ export function ApprovalList({ account }: { account: string | null }) {
             <TableRow className="border-white/5 hover:bg-transparent">
               <TableHead className="w-[50px]">
                 <Checkbox 
-                  checked={selectedTokens.size === approvals.length && approvals.length > 0}
+                  checked={selectedIds.size === approvals.length && approvals.length > 0}
                   onCheckedChange={toggleSelectAll}
                   data-testid="checkbox-select-all"
                 />
               </TableHead>
               <TableHead className="text-muted-foreground font-mono uppercase text-xs tracking-wider">Token</TableHead>
-              <TableHead className="text-muted-foreground font-mono uppercase text-xs tracking-wider">Symbol</TableHead>
-              <TableHead className="text-muted-foreground font-mono uppercase text-xs tracking-wider min-w-[200px]">Spender Address</TableHead>
+              <TableHead className="text-muted-foreground font-mono uppercase text-xs tracking-wider">Spender</TableHead>
               <TableHead className="w-[120px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -293,41 +364,37 @@ export function ApprovalList({ account }: { account: string | null }) {
               <TableRow key={approval.id} className="border-white/5 hover:bg-white/5 transition-colors">
                 <TableCell>
                   <Checkbox 
-                    checked={selectedTokens.has(approval.contractAddress)}
-                    onCheckedChange={() => toggleTokenSelection(approval.contractAddress)}
-                    data-testid={`checkbox-token-${approval.contractAddress}`}
+                    checked={selectedIds.has(approval.id)}
+                    onCheckedChange={() => toggleSelection(approval.id)}
+                    data-testid={`checkbox-${approval.id}`}
                   />
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-white/5 flex items-center justify-center text-primary border border-white/10 shrink-0">
-                      <ShieldAlert size={14} />
+                    <div className="h-8 w-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20 shrink-0">
+                      <AlertTriangle size={14} />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-white">{approval.contractName || "Unknown"}</span>
-                      <span className="text-[10px] text-muted-foreground font-mono">{approval.contractAddress.slice(0,10)}...</span>
+                      <span className="text-sm font-medium text-white">{approval.tokenSymbol}</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">{formatAddress(approval.tokenAddress)}</span>
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="font-mono text-sm text-white">{approval.asset}</TableCell>
                 <TableCell>
-                  <Input 
-                    placeholder="0x..." 
-                    value={approval.spenderAddress}
-                    onChange={(e) => updateSpenderAddress(approval.contractAddress, e.target.value)}
-                    className="bg-black/50 border-white/20 focus:border-primary font-mono text-xs h-8"
-                    data-testid={`input-spender-${approval.contractAddress}`}
-                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-mono text-white">{formatAddress(approval.spenderAddress)}</span>
+                    <span className="text-[10px] text-muted-foreground">Has unlimited access</span>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <Button 
                     size="sm" 
-                    onClick={() => handleRevokeSingle(approval.contractAddress, approval.spenderAddress)}
-                    disabled={revokingTokens.has(approval.contractAddress) || !approval.spenderAddress}
-                    className="bg-primary text-black hover:bg-primary/90 h-8 font-bold disabled:opacity-50"
-                    data-testid={`button-revoke-${approval.contractAddress}`}
+                    onClick={() => handleRevoke(approval)}
+                    disabled={revokingIds.has(approval.id)}
+                    className="bg-primary text-black hover:bg-primary/90 h-8 font-bold"
+                    data-testid={`button-revoke-${approval.id}`}
                   >
-                    {revokingTokens.has(approval.contractAddress) ? (
+                    {revokingIds.has(approval.id) ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       'Revoke'
