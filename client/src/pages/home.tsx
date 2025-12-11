@@ -27,6 +27,7 @@ const ERC20_ABI = [
 
 export default function Home() {
   const [account, setAccount] = useState<string | null>(null);
+  const [wrongNetwork, setWrongNetwork] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<ContractSearchResult | null>(null);
@@ -141,7 +142,7 @@ export default function Home() {
             </div>
           </div>
           
-          <ConnectWallet onAccountChange={setAccount} />
+          <ConnectWallet onAccountChange={setAccount} onNetworkChange={setWrongNetwork} />
         </div>
       </nav>
 
@@ -228,7 +229,7 @@ export default function Home() {
         </div>
 
         <div className="glass-panel rounded-xl p-6 md:p-8 min-h-[500px]">
-          <ApprovalList account={account} onStatsUpdate={handleStatsUpdate} />
+          <ApprovalList account={account} onStatsUpdate={handleStatsUpdate} wrongNetwork={wrongNetwork} />
         </div>
       </main>
 

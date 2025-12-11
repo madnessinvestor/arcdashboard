@@ -5,7 +5,7 @@ import { switchNetwork, ARC_TESTNET } from '@/lib/arc-network';
 import { Wallet, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account: string | null) => void }) {
+export function ConnectWallet({ onAccountChange, onNetworkChange }: { onAccountChange?: (account: string | null) => void; onNetworkChange?: (isWrongNetwork: boolean) => void }) {
   const [account, setAccount] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [wrongNetwork, setWrongNetwork] = useState(false);
@@ -16,13 +16,13 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
     
     if (window.ethereum) {
       window.ethereum.on('chainChanged', (chainId: string) => {
-        // When chain changes, if it's not Arc Testnet, switch back
+        // When chain changes, if it's not Arc Testnet, update state
         if (chainId.toLowerCase() !== ARC_TESTNET.chainId.toLowerCase()) {
           setWrongNetwork(true);
-          // Auto-switch back to Arc Testnet
-          forceNetworkSwitch();
+          onNetworkChange?.(true);
         } else {
           setWrongNetwork(false);
+          onNetworkChange?.(false);
         }
       });
       window.ethereum.on('accountsChanged', (accounts: string[]) => {
@@ -38,6 +38,12 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
     }
   }, []);
   
+  const getActualChainId = async (): Promise<string> => {
+    if (!window.ethereum) return '';
+    const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+    return chainId.toLowerCase();
+  };
+
   const forceNetworkSwitch = async () => {
     if (!window.ethereum) return;
     
@@ -46,7 +52,6 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: ARC_TESTNET.chainId }],
       });
-      setWrongNetwork(false);
     } catch (switchError: any) {
       if (switchError.code === 4902) {
         try {
@@ -54,19 +59,20 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
             method: 'wallet_addEthereumChain',
             params: [ARC_TESTNET],
           });
-          setWrongNetwork(false);
         } catch (addError) {
           console.error('Failed to add Arc Testnet', addError);
         }
       }
     }
-  };
-
-  const checkNetwork = async (chainId: string) => {
-    if (chainId.toLowerCase() !== ARC_TESTNET.chainId.toLowerCase()) {
-        setWrongNetwork(true);
-    } else {
-        setWrongNetwork(false);
+    
+    // Use direct eth_chainId request for fresh chain info
+    try {
+      const currentChainId = await getActualChainId();
+      const isWrong = currentChainId !== ARC_TESTNET.chainId.toLowerCase();
+      setWrongNetwork(isWrong);
+      onNetworkChange?.(isWrong);
+    } catch (e) {
+      console.error('Failed to verify network:', e);
     }
   };
 
@@ -74,17 +80,27 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
     if (!window.ethereum) return;
     
     try {
-      const provider = new BrowserProvider(window.ethereum);
-      const network = await provider.getNetwork();
-      const currentChainId = "0x" + network.chainId.toString(16);
+      const currentChainId = await getActualChainId();
       
-      if (currentChainId.toLowerCase() !== ARC_TESTNET.chainId.toLowerCase()) {
-        await switchNetwork();
-        setWrongNetwork(false);
-        toast({
-          title: "Network Changed",
-          description: "Automatically switched to Arc Testnet",
-        });
+      if (currentChainId !== ARC_TESTNET.chainId.toLowerCase()) {
+        try {
+          await switchNetwork();
+        } catch (e) {
+          console.error("Switch network failed:", e);
+        }
+        
+        // Use direct eth_chainId request for fresh chain info
+        const newChainId = await getActualChainId();
+        const isWrong = newChainId !== ARC_TESTNET.chainId.toLowerCase();
+        setWrongNetwork(isWrong);
+        onNetworkChange?.(isWrong);
+        
+        if (!isWrong) {
+          toast({
+            title: "Network Changed",
+            description: "Automatically switched to Arc Testnet",
+          });
+        }
       }
     } catch (e) {
       console.error("Error auto-switching network", e);
@@ -100,8 +116,11 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
             setAccount(accounts[0].address);
             onAccountChange?.(accounts[0].address);
             
-            // Always force switch to Arc Testnet when connected
-            await forceNetworkSwitch();
+            // Use direct eth_chainId request for accurate network state
+            const currentChainId = await getActualChainId();
+            const isWrong = currentChainId !== ARC_TESTNET.chainId.toLowerCase();
+            setWrongNetwork(isWrong);
+            onNetworkChange?.(isWrong);
         }
       } catch (e) {
         console.error("Error checking connection", e);
@@ -126,7 +145,7 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
       setAccount(accounts[0]);
       onAccountChange?.(accounts[0]);
       
-      // Force switch to Arc Testnet immediately after connection
+      // Try to switch to Arc Testnet
       try {
         await window.ethereum.request({
           method: 'wallet_switchEthereumChain',
@@ -135,19 +154,35 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
       } catch (switchError: any) {
         // Chain not added, add it first
         if (switchError.code === 4902) {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [ARC_TESTNET],
-          });
+          try {
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [ARC_TESTNET],
+            });
+          } catch (addError) {
+            console.error('Failed to add chain:', addError);
+          }
         }
       }
       
-      setWrongNetwork(false);
+      // Use direct eth_chainId request for fresh chain info after switch attempt
+      const currentChainId = await getActualChainId();
+      const isCorrectNetwork = currentChainId === ARC_TESTNET.chainId.toLowerCase();
+      setWrongNetwork(!isCorrectNetwork);
+      onNetworkChange?.(!isCorrectNetwork);
       
-      toast({
-        title: "Connected",
-        description: "Wallet connected to Arc Testnet.",
-      });
+      if (isCorrectNetwork) {
+        toast({
+          title: "Connected",
+          description: "Wallet connected to Arc Testnet.",
+        });
+      } else {
+        toast({
+          title: "Connected",
+          description: "Wallet connected. Please switch to Arc Testnet.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
       console.error(error);
       toast({
@@ -165,8 +200,16 @@ export function ConnectWallet({ onAccountChange }: { onAccountChange?: (account:
   };
   
   const handleSwitch = async () => {
+    try {
       await switchNetwork();
-      setWrongNetwork(false);
+      // Use direct eth_chainId request for accurate network verification
+      const currentChainId = await getActualChainId();
+      const isCorrectNetwork = currentChainId === ARC_TESTNET.chainId.toLowerCase();
+      setWrongNetwork(!isCorrectNetwork);
+      onNetworkChange?.(!isCorrectNetwork);
+    } catch (e) {
+      console.error('Failed to switch network:', e);
+    }
   };
 
   if (account && wrongNetwork) {

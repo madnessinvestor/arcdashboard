@@ -54,7 +54,7 @@ const getTokenPrice = (symbol: string): number => {
   return TESTNET_PRICES[upperSymbol] || 0.01;
 };
 
-export function ApprovalList({ account, onStatsUpdate }: { account: string | null; onStatsUpdate?: () => void }) {
+export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account: string | null; onStatsUpdate?: () => void; wrongNetwork?: boolean }) {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [detectedApprovals, setDetectedApprovals] = useState<DetectedApproval[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -353,6 +353,15 @@ export function ApprovalList({ account, onStatsUpdate }: { account: string | nul
 
   return (
     <Tabs defaultValue="detected" className="w-full">
+      {wrongNetwork && account && (
+        <div className="mb-4 p-4 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center gap-3" data-testid="warning-wrong-network">
+          <AlertTriangle className="text-red-500 h-5 w-5 shrink-0" />
+          <div className="flex-1">
+            <span className="text-red-400 font-bold text-sm">Wrong Network</span>
+            <p className="text-red-300/80 text-xs">Please switch to Arc Testnet to revoke approvals. Use the button in the header to switch networks.</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
         <TabsList className="bg-black/40">
           <TabsTrigger value="detected" className="data-[state=active]:bg-primary data-[state=active]:text-black" data-testid="tab-detected">
@@ -382,7 +391,7 @@ export function ApprovalList({ account, onStatsUpdate }: { account: string | nul
             {selectedIds.size > 0 && (
               <Button 
                 onClick={handleBatchRevokeDetected} 
-                disabled={isBatchRevoking}
+                disabled={isBatchRevoking || wrongNetwork}
                 className="bg-primary text-black hover:bg-primary/90 font-bold"
                 data-testid="button-batch-revoke-detected"
               >
@@ -465,7 +474,7 @@ export function ApprovalList({ account, onStatsUpdate }: { account: string | nul
                       <Button 
                         size="sm"
                         onClick={() => handleRevokeDetected(approval)}
-                        disabled={revokingIds.has(approval.id)}
+                        disabled={revokingIds.has(approval.id) || wrongNetwork}
                         className="bg-primary text-black hover:bg-primary/90 h-8 font-bold"
                         data-testid={`button-revoke-${approval.id}`}
                       >
