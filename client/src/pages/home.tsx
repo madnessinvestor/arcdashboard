@@ -1,6 +1,6 @@
 import { ConnectWallet } from "@/components/ConnectWallet";
 import { ApprovalList } from "@/components/ApprovalList";
-import { ShieldCheck, Search, Activity, Lock, FileCheck } from "lucide-react";
+import { ShieldCheck, Search, Activity, Lock, FileCheck, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import generatedImage from '@assets/generated_images/futuristic_abstract_dark_crypto_background_with_neon_networks.png';
@@ -177,22 +177,19 @@ export default function Home() {
             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
               <Search size={64} />
             </div>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input 
-                  placeholder="Enter contract address (0x...)" 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  className="bg-black/40 border-white/10 pl-10 focus:border-primary/50 focus:ring-primary/20 font-mono"
-                  data-testid="input-search"
-                />
-              </div>
+            <div className="flex gap-2 relative z-10">
+              <Input 
+                placeholder="Enter contract address (0x...)" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyPress={handleKeyPress}
+                className="bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono flex-1"
+                data-testid="input-search"
+              />
               <Button 
                 onClick={searchContract} 
                 disabled={isSearching || !searchQuery.trim()}
-                className="bg-primary text-black font-bold"
+                className="bg-primary text-black font-bold shrink-0"
                 data-testid="button-search"
               >
                 {isSearching ? "..." : "Search"}
@@ -204,8 +201,15 @@ export default function Home() {
             )}
             
             {searchResult && (
-              <div className="mt-4 p-3 bg-black/40 rounded-lg border border-white/10">
-                <div className="flex items-center gap-2 mb-2">
+              <div className="mt-4 p-3 bg-black/40 rounded-lg border border-white/10 relative">
+                <button
+                  onClick={() => setSearchResult(null)}
+                  className="absolute top-2 right-2 text-muted-foreground hover:text-white transition-colors"
+                  data-testid="button-close-search"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-2 mb-2 pr-6">
                   <Activity className="text-primary h-4 w-4" />
                   <span className="text-white font-medium text-sm">{searchResult.name}</span>
                   {searchResult.isToken && (
