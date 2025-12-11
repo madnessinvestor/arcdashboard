@@ -39,6 +39,9 @@ task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [agent]
 mockupState = "FULLSTACK"
 expertMode = true
