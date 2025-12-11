@@ -31,16 +31,14 @@ export default function Home() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<ContractSearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [statsRefreshKey, setStatsRefreshKey] = useState(0);
-
   // Fetch stats from the server
   const { data: stats, refetch: refetchStats } = useQuery<{ totalRevokes: number; totalValueSecured: string }>({
-    queryKey: ['/api/stats', statsRefreshKey],
+    queryKey: ['/api/stats'],
     refetchInterval: 10000, // Refresh every 10 seconds
+    staleTime: 0, // Always consider data stale for fresh fetches
   });
 
   const handleStatsUpdate = useCallback(() => {
-    setStatsRefreshKey(prev => prev + 1);
     refetchStats();
   }, [refetchStats]);
 
