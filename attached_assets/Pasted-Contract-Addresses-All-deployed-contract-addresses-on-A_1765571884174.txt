@@ -1,0 +1,91 @@
+Contract Addresses
+All deployed contract addresses on Arc Testnet (Chain ID: 5042002).
+
+Core Contracts
+PoolFactory
+Address: 0x34A0b64a88BBd4Bf6Acba8a0Ff8F27c8aDD67E9C
+
+Explorer: https://testnet.arcscan.app/address/0x34A0b64a88BBd4Bf6Acba8a0Ff8F27c8aDD67E9C
+
+Purpose: Creates and manages all liquidity pools
+
+Router
+Address: 0x284C5Afc100ad14a458255075324fA0A9dfd66b1
+
+Explorer: https://testnet.arcscan.app/address/0x284C5Afc100ad14a458255075324fA0A9dfd66b1
+
+Purpose: Enables multi-hop swaps and optimal routing
+
+USDC (Native)
+Address: 0x3600000000000000000000000000000000000000
+
+Explorer: https://testnet.arcscan.app/address/0x3600000000000000000000000000000000000000
+
+Purpose: Native USDC token on Arc Testnet (6 decimals)
+
+Deployed Tokens
+SRAC
+Address: 0x49cd69442dB073E7b94B0124e316AB7C68b95988
+
+Explorer: https://testnet.arcscan.app/address/0x49cd69442dB073E7b94B0124e316AB7C68b95988
+
+Decimals: 18
+
+RACS
+Address: 0x6E63e2cABECCe5c3A1c37b79A958a9542076A1e3
+
+Explorer: https://testnet.arcscan.app/address/0x6E63e2cABECCe5c3A1c37b79A958a9542076A1e3
+
+Decimals: 18
+
+SACS
+Address: 0x63F856fBAB3535174bFaFD6EFd720C634d6FD458
+
+Explorer: https://testnet.arcscan.app/address/0x63F856fBAB3535174bFaFD6EFd720C634d6FD458
+
+Decimals: 18
+
+KITTY
+Address: 0xe470A3Fb08345FD4a84c1b56Bd35bA7Be6297C3d
+
+Explorer: https://testnet.arcscan.app/address/0xe470A3Fb08345FD4a84c1b56Bd35bA7Be6297C3d
+
+Decimals: 18
+
+DOGG
+Address: 0x832Fa4331050045F911bD6d59EAD144A04B965cB
+
+Explorer: https://testnet.arcscan.app/address/0x832Fa4331050045F911bD6d59EAD144A04B965cB
+
+Decimals: 18
+
+Pool Addresses
+Pool addresses are created dynamically. To find a pool:
+
+address pool = factory.getPool(tokenA, tokenB);
+Or query the factory's allPools array.
+
+Network Information
+Network Name: Arc Testnet
+Chain ID: 5042002
+RPC URL: https://rpc.testnet.arc.network
+Explorer: https://testnet.arcscan.app
+Currency: USDC (native)
+Verification
+All contracts are verified on ArcScan. You can view:
+
+Source code
+ABI
+Read/write functions
+Transaction history
+Integration
+To integrate the DEX into your application:
+
+const FACTORY_ADDRESS = "0x34A0b64a88BBd4Bf6Acba8a0Ff8F27c8aDD67E9C";
+const ROUTER_ADDRESS = "0x284C5Afc100ad14a458255075324fA0A9dfd66b1";
+const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
+Or use inline addresses:
+
+Factory: 0x34A0b64a88BBd4Bf6Acba8a0Ff8F27c8aDD67E9C
+Router: 0x284C5Afc100ad14a458255075324fA0A9dfd66b1
+USDC: 0x3600000000000000000000000000000000000000
