@@ -127,7 +127,7 @@ async function fetchPriceFromCoinGecko(symbol: string): Promise<number> {
   }
 }
 
-async function fetchPriceFromPool(tokenAddress: string, tokenDecimals: number = 18): Promise<number> {
+async function fetchPriceFromPool(tokenAddress: string): Promise<number> {
   const cacheKey = `pool_${tokenAddress.toLowerCase()}`;
   const cached = priceCache[cacheKey];
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
@@ -146,10 +146,12 @@ async function fetchPriceFromPool(tokenAddress: string, tokenDecimals: number = 
     }
 
     const pairContract = new Contract(poolAddress, POOL_PAIR_ABI, provider);
+    const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
     
-    const [reserves, tokenAAddress] = await Promise.all([
+    const [reserves, tokenAAddress, tokenDecimals] = await Promise.all([
       pairContract.getReserves(),
-      pairContract.tokenA()
+      pairContract.tokenA(),
+      tokenContract.decimals().catch(() => 18)
     ]);
 
     const reserve0 = reserves[0];
@@ -160,7 +162,8 @@ async function fetchPriceFromPool(tokenAddress: string, tokenDecimals: number = 
     const tokenReserve = isTokenA ? reserve0 : reserve1;
     const usdcReserve = isTokenA ? reserve1 : reserve0;
     
-    const tokenReserveFormatted = parseFloat(formatUnits(tokenReserve, tokenDecimals));
+    const decimals = Number(tokenDecimals);
+    const tokenReserveFormatted = parseFloat(formatUnits(tokenReserve, decimals));
     const usdcReserveFormatted = parseFloat(formatUnits(usdcReserve, 6));
     
     if (tokenReserveFormatted === 0) return 0;
@@ -168,7 +171,7 @@ async function fetchPriceFromPool(tokenAddress: string, tokenDecimals: number = 
     const price = usdcReserveFormatted / tokenReserveFormatted;
     
     priceCache[cacheKey] = { price, timestamp: Date.now() };
-    console.log(`Pool price for ${tokenAddress}: $${price.toFixed(6)}`);
+    console.log(`Pool price for ${tokenAddress} (${decimals} decimals): $${price.toFixed(6)}`);
     return price;
   } catch (error) {
     console.error('Pool price fetch error:', error);
@@ -182,7 +185,6 @@ async function fetchTokenPrices(tokens: Token[]): Promise<Map<string, number>> {
   const pricePromises = tokens.map(async (token) => {
     const upperSymbol = token.symbol?.toUpperCase() || '';
     const addressLower = token.contractAddress.toLowerCase();
-    const decimals = token.decimals || 18;
     
     if (upperSymbol === 'USDC' || addressLower === USDC_ADDRESS) {
       return { address: addressLower, price: 1.0 };
@@ -197,7 +199,7 @@ async function fetchTokenPrices(tokens: Token[]): Promise<Map<string, number>> {
       return { address: addressLower, price: coingeckoPrice };
     }
     
-    const poolPrice = await fetchPriceFromPool(token.contractAddress, decimals);
+    const poolPrice = await fetchPriceFromPool(token.contractAddress);
     if (poolPrice > 0) {
       return { address: addressLower, price: poolPrice };
     }
