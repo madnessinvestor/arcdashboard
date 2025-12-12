@@ -51,6 +51,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
   const [tokens, setTokens] = useState<Token[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   
   const tokensRef = useRef<Token[]>([]);
@@ -63,12 +64,23 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
   const fetchTokens = useCallback(async () => {
     if (!walletToDisplay) return;
     setIsLoading(true);
+    setError(null);
     
     try {
       const response = await fetch(
         `https://testnet.arcscan.app/api?module=account&action=tokenlist&address=${walletToDisplay}`
       );
+      
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+      
       const data = await response.json();
+      
+      if (data.status === "0" && data.message === "No tokens found") {
+        setTokens([]);
+        return;
+      }
       
       if (data.result && Array.isArray(data.result)) {
         const provider = new JsonRpcProvider(ARC_TESTNET.rpcUrls[0]);
@@ -110,9 +122,11 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
       }
     } catch (error) {
       console.error("Failed to fetch tokens", error);
+      setError("Failed to fetch tokens. Please try again later.");
     } finally {
       setIsLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletToDisplay]);
 
   useEffect(() => {
@@ -169,6 +183,21 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-muted-foreground">Loading tokens...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+        <div className="h-16 w-16 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20">
+          <Coins size={32} className="text-red-500" />
+        </div>
+        <h3 className="text-2xl font-display font-bold text-white">Error Loading Tokens</h3>
+        <p className="text-muted-foreground max-w-md">{error}</p>
+        <Button onClick={fetchTokens} className="bg-primary text-black font-bold" data-testid="button-retry">
+          Try Again
+        </Button>
       </div>
     );
   }

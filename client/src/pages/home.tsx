@@ -1,11 +1,12 @@
 import { ConnectWallet } from "@/components/ConnectWallet";
 import { TokenPortfolio } from "@/components/TokenPortfolio";
-import { LayoutDashboard, Search, Wallet, X, Coins } from "lucide-react";
+import { LayoutDashboard, Search, Wallet, X, Coins, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import generatedImage from '@assets/generated_images/futuristic_abstract_dark_crypto_background_with_neon_networks.png';
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Home() {
   const [account, setAccount] = useState<string | null>(null);
@@ -13,12 +14,25 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchedWallet, setSearchedWallet] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("portfolio");
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const handleSearch = () => {
-    if (!searchQuery.trim()) return;
+    setSearchError(null);
+    
+    if (!searchQuery.trim()) {
+      setSearchError("Please enter a wallet address");
+      return;
+    }
     
     const address = searchQuery.trim();
     if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      setSearchError("Invalid address format. Please enter a valid wallet address (0x...)");
+      toast({
+        title: "Invalid Address",
+        description: "Please enter a valid Ethereum wallet address starting with 0x",
+        variant: "destructive",
+      });
       return;
     }
     
@@ -35,7 +49,13 @@ export default function Home() {
   const clearSearch = () => {
     setSearchQuery("");
     setSearchedWallet(null);
+    setSearchError(null);
     setActiveTab("portfolio");
+  };
+
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    if (searchError) setSearchError(null);
   };
 
   const handleTabChange = (value: string) => {
@@ -76,9 +96,9 @@ export default function Home() {
               <Input 
                 placeholder="Search address / memo / Web3 ID" 
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={handleSearchInputChange}
                 onKeyDown={handleKeyPress}
-                className="bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono pl-10 pr-20 h-10"
+                className={`bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono pl-10 pr-20 h-10 ${searchError ? 'border-red-500' : ''}`}
                 data-testid="input-search"
               />
               {searchQuery && (
@@ -99,6 +119,12 @@ export default function Home() {
                 Go
               </Button>
             </div>
+            {searchError && (
+              <p className="text-red-500 text-xs mt-1 font-mono flex items-center gap-1" data-testid="text-search-error">
+                <AlertCircle className="h-3 w-3" />
+                {searchError}
+              </p>
+            )}
           </div>
           
           <ConnectWallet onAccountChange={setAccount} onNetworkChange={setWrongNetwork} />
@@ -110,9 +136,9 @@ export default function Home() {
             <Input 
               placeholder="Search address..." 
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchInputChange}
               onKeyDown={handleKeyPress}
-              className="bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono pl-10 pr-20 h-10"
+              className={`bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono pl-10 pr-20 h-10 ${searchError ? 'border-red-500' : ''}`}
               data-testid="input-search-mobile"
             />
             {searchQuery && (
@@ -131,6 +157,12 @@ export default function Home() {
               Go
             </Button>
           </div>
+          {searchError && (
+            <p className="text-red-500 text-xs mt-1 font-mono flex items-center gap-1">
+              <AlertCircle className="h-3 w-3" />
+              {searchError}
+            </p>
+          )}
         </div>
       </nav>
 
