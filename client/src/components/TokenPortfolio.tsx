@@ -87,6 +87,29 @@ interface PriceCache {
 
 const priceCache: PriceCache = {};
 const CACHE_DURATION = 30000;
+const REQUEST_DELAY = 300;
+const MAX_RETRIES = 3;
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function fetchWithRetry<T>(
+  fn: () => Promise<T>,
+  retries: number = MAX_RETRIES,
+  delayMs: number = REQUEST_DELAY
+): Promise<T | null> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await fn();
+      return result;
+    } catch (error) {
+      console.log(`Attempt ${i + 1}/${retries} failed, retrying in ${delayMs}ms...`);
+      if (i < retries - 1) {
+        await delay(delayMs * (i + 1));
+      }
+    }
+  }
+  return null;
+}
 
 async function fetchPriceFromCoinGecko(symbol: string): Promise<number> {
   const cacheKey = `coingecko_${symbol.toLowerCase()}`;
@@ -179,38 +202,46 @@ async function fetchPriceFromPool(tokenAddress: string): Promise<number> {
   }
 }
 
-async function fetchTokenPrices(tokens: Token[]): Promise<Map<string, number>> {
+async function fetchTokenPrices(
+  tokens: Token[],
+  onProgress?: (current: number, total: number, tokenSymbol: string) => void
+): Promise<Map<string, number>> {
   const priceMap = new Map<string, number>();
+  const total = tokens.length;
   
-  const pricePromises = tokens.map(async (token) => {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
     const upperSymbol = token.symbol?.toUpperCase() || '';
     const addressLower = token.contractAddress.toLowerCase();
     
+    onProgress?.(i + 1, total, token.symbol || 'Unknown');
+    
     if (upperSymbol === 'USDC' || addressLower === USDC_ADDRESS) {
-      return { address: addressLower, price: 1.0 };
+      priceMap.set(addressLower, 1.0);
+      continue;
     }
     
     if (STABLECOIN_SYMBOLS.includes(upperSymbol) && upperSymbol !== 'EURC') {
-      return { address: addressLower, price: 1.0 };
+      priceMap.set(addressLower, 1.0);
+      continue;
     }
     
-    const coingeckoPrice = await fetchPriceFromCoinGecko(token.symbol);
-    if (coingeckoPrice > 0) {
-      return { address: addressLower, price: coingeckoPrice };
+    const coingeckoPrice = await fetchWithRetry(() => fetchPriceFromCoinGecko(token.symbol));
+    if (coingeckoPrice && coingeckoPrice > 0) {
+      priceMap.set(addressLower, coingeckoPrice);
+      await delay(REQUEST_DELAY);
+      continue;
     }
     
-    const poolPrice = await fetchPriceFromPool(token.contractAddress);
-    if (poolPrice > 0) {
-      return { address: addressLower, price: poolPrice };
+    const poolPrice = await fetchWithRetry(() => fetchPriceFromPool(token.contractAddress));
+    if (poolPrice && poolPrice > 0) {
+      priceMap.set(addressLower, poolPrice);
+    } else {
+      priceMap.set(addressLower, 0);
     }
     
-    return { address: addressLower, price: 0 };
-  });
-  
-  const results = await Promise.all(pricePromises);
-  results.forEach(({ address, price }) => {
-    priceMap.set(address, price);
-  });
+    await delay(REQUEST_DELAY);
+  }
   
   return priceMap;
 }
@@ -224,6 +255,7 @@ interface TokenPortfolioProps {
 export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenPortfolioProps) {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState<{ phase: string; current: number; total: number; detail?: string }>({ phase: '', current: 0, total: 0 });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -239,6 +271,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
     if (!walletToDisplay) return;
     setIsLoading(true);
     setError(null);
+    setLoadingProgress({ phase: 'Fetching token list...', current: 0, total: 0 });
     
     try {
       const response = await fetch(
@@ -258,41 +291,61 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
       
       if (data.result && Array.isArray(data.result)) {
         const provider = new JsonRpcProvider(ARC_TESTNET.rpcUrls[0]);
+        const tokenList = data.result as Token[];
+        const totalTokens = tokenList.length;
+        const tokensWithBalances: Token[] = [];
         
-        const tokensWithBalances = await Promise.all(
-          data.result.map(async (token: Token) => {
-            try {
-              const contract = new Contract(token.contractAddress, ERC20_ABI, provider);
-              const [balance, decimals] = await Promise.all([
-                contract.balanceOf(walletToDisplay),
-                contract.decimals().catch(() => 18)
-              ]);
-              const formattedBalance = formatUnits(balance, decimals);
-              const logoUrl = getTokenLogoUrl(token.contractAddress, token.symbol || '');
-              return {
-                ...token,
-                balance: formattedBalance,
-                decimals,
-                logoUrl,
-                price: 0,
-                value: 0
-              };
-            } catch (e) {
-              console.error('Failed to fetch balance for', token.symbol, e);
-              const existingToken = tokensRef.current.find(t => t.contractAddress === token.contractAddress);
-              return { 
-                ...token, 
-                balance: existingToken?.balance || '0', 
-                decimals: existingToken?.decimals || 18,
-                logoUrl: getTokenLogoUrl(token.contractAddress, token.symbol || ''),
-                price: 0,
-                value: 0 
-              };
-            }
-          })
-        );
+        setLoadingProgress({ phase: 'Loading balances', current: 0, total: totalTokens });
         
-        const priceMap = await fetchTokenPrices(tokensWithBalances);
+        for (let i = 0; i < tokenList.length; i++) {
+          const token = tokenList[i];
+          setLoadingProgress({ 
+            phase: 'Loading balances', 
+            current: i + 1, 
+            total: totalTokens,
+            detail: token.symbol || 'Unknown'
+          });
+          
+          const result = await fetchWithRetry(async () => {
+            const contract = new Contract(token.contractAddress, ERC20_ABI, provider);
+            const [balance, decimals] = await Promise.all([
+              contract.balanceOf(walletToDisplay),
+              contract.decimals().catch(() => 18)
+            ]);
+            const formattedBalance = formatUnits(balance, decimals);
+            const logoUrl = getTokenLogoUrl(token.contractAddress, token.symbol || '');
+            return {
+              ...token,
+              balance: formattedBalance,
+              decimals,
+              logoUrl,
+              price: 0,
+              value: 0
+            };
+          });
+          
+          if (result) {
+            tokensWithBalances.push(result);
+          } else {
+            const existingToken = tokensRef.current.find(t => t.contractAddress === token.contractAddress);
+            tokensWithBalances.push({ 
+              ...token, 
+              balance: existingToken?.balance || '0', 
+              decimals: existingToken?.decimals || 18,
+              logoUrl: getTokenLogoUrl(token.contractAddress, token.symbol || ''),
+              price: 0,
+              value: 0 
+            });
+          }
+          
+          await delay(REQUEST_DELAY);
+        }
+        
+        setLoadingProgress({ phase: 'Loading prices', current: 0, total: totalTokens });
+        
+        const priceMap = await fetchTokenPrices(tokensWithBalances, (current, total, tokenSymbol) => {
+          setLoadingProgress({ phase: 'Loading prices', current, total, detail: tokenSymbol });
+        });
         
         const tokensWithPrices = tokensWithBalances.map(token => {
           const price = priceMap.get(token.contractAddress.toLowerCase()) || 0;
@@ -310,6 +363,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
       setError("Failed to fetch tokens. Please try again later.");
     } finally {
       setIsLoading(false);
+      setLoadingProgress({ phase: '', current: 0, total: 0 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletToDisplay]);
@@ -364,10 +418,28 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
   };
 
   if (isLoading) {
+    const progressPercent = loadingProgress.total > 0 
+      ? Math.round((loadingProgress.current / loadingProgress.total) * 100) 
+      : 0;
+    
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground">Loading tokens...</p>
+        <p className="text-muted-foreground">{loadingProgress.phase || 'Loading tokens...'}</p>
+        {loadingProgress.total > 0 && (
+          <>
+            <div className="w-64 h-2 bg-muted/20 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-primary transition-all duration-300 ease-out"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {loadingProgress.current} / {loadingProgress.total}
+              {loadingProgress.detail && ` - ${loadingProgress.detail}`}
+            </p>
+          </>
+        )}
       </div>
     );
   }
