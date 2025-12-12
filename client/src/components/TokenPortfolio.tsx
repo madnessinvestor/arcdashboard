@@ -15,6 +15,7 @@ interface Token {
   decimals?: number;
   price?: number;
   value?: number;
+  logoUrl?: string;
 }
 
 const ERC20_ABI = [
@@ -24,22 +25,114 @@ const ERC20_ABI = [
   "function balanceOf(address account) view returns (uint256)"
 ];
 
-const TESTNET_PRICES: Record<string, number> = {
-  'USDC': 1.00,
-  'USDT': 1.00,
-  'DAI': 1.00,
-  'WETH': 2200,
-  'ETH': 2200,
-  'WBTC': 43000,
-  'BTC': 43000,
-  'ARC': 0.50,
-  'TEST': 0.10,
+const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'UST', 'FRAX', 'TUSD', 'GUSD', 'USDP', 'SUSD'];
+
+const TOKEN_LOGO_SOURCES = {
+  trustwallet: (address: string, chainId: string = 'ethereum') => 
+    `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chainId}/assets/${address}/logo.png`,
+  coingecko: (symbol: string) => 
+    `https://assets.coingecko.com/coins/images/small/${symbol.toLowerCase()}.png`,
 };
 
-const getTokenPrice = (symbol: string): number => {
-  const upperSymbol = symbol.toUpperCase();
-  return TESTNET_PRICES[upperSymbol] || 0.01;
+const getTokenLogoUrl = (address: string, symbol: string): string => {
+  const symbolLower = symbol.toLowerCase();
+  const knownLogos: Record<string, string> = {
+    'usdc': 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
+    'usdt': 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
+    'dai': 'https://assets.coingecko.com/coins/images/9956/small/4943.png',
+    'weth': 'https://assets.coingecko.com/coins/images/2518/small/weth.png',
+    'eth': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+    'wbtc': 'https://assets.coingecko.com/coins/images/7598/small/wrapped_bitcoin_wbtc.png',
+    'btc': 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+    'arc': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  };
+  
+  return knownLogos[symbolLower] || '';
 };
+
+interface PriceCache {
+  [address: string]: {
+    price: number;
+    timestamp: number;
+  };
+}
+
+const priceCache: PriceCache = {};
+const CACHE_DURATION = 60000;
+
+async function fetchTokenPriceFromDexScreener(contractAddress: string, symbol: string): Promise<number> {
+  const cached = priceCache[contractAddress.toLowerCase()];
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.price;
+  }
+
+  const upperSymbol = symbol.toUpperCase();
+  if (STABLECOIN_SYMBOLS.includes(upperSymbol)) {
+    priceCache[contractAddress.toLowerCase()] = { price: 1.0, timestamp: Date.now() };
+    return 1.0;
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${contractAddress}`
+    );
+    
+    if (!response.ok) {
+      throw new Error('DexScreener API request failed');
+    }
+    
+    const data = await response.json();
+    
+    if (data.pairs && data.pairs.length > 0) {
+      const usdcPairs = data.pairs.filter((p: any) => 
+        p.quoteToken?.symbol?.toUpperCase() === 'USDC' ||
+        p.quoteToken?.symbol?.toUpperCase() === 'USDT'
+      );
+      
+      const bestPair = usdcPairs.length > 0 
+        ? usdcPairs.reduce((prev: any, current: any) => 
+            (prev.liquidity?.usd || 0) > (current.liquidity?.usd || 0) ? prev : current
+          )
+        : data.pairs.reduce((prev: any, current: any) => 
+            (prev.liquidity?.usd || 0) > (current.liquidity?.usd || 0) ? prev : current
+          );
+      
+      const price = parseFloat(bestPair.priceUsd) || 0;
+      priceCache[contractAddress.toLowerCase()] = { price, timestamp: Date.now() };
+      return price;
+    }
+  } catch (error) {
+    console.error('Failed to fetch price from DexScreener:', error);
+  }
+  
+  return 0;
+}
+
+async function fetchTokenPrices(tokens: Token[]): Promise<Map<string, number>> {
+  const priceMap = new Map<string, number>();
+  
+  const nonStableTokens = tokens.filter(t => 
+    !STABLECOIN_SYMBOLS.includes(t.symbol?.toUpperCase() || '')
+  );
+  
+  tokens.forEach(t => {
+    if (STABLECOIN_SYMBOLS.includes(t.symbol?.toUpperCase() || '')) {
+      priceMap.set(t.contractAddress.toLowerCase(), 1.0);
+    }
+  });
+  
+  const pricePromises = nonStableTokens.map(async (token) => {
+    const price = await fetchTokenPriceFromDexScreener(token.contractAddress, token.symbol);
+    return { address: token.contractAddress.toLowerCase(), price };
+  });
+  
+  const results = await Promise.all(pricePromises);
+  results.forEach(({ address, price }) => {
+    priceMap.set(address, price);
+  });
+  
+  return priceMap;
+}
 
 interface TokenPortfolioProps {
   account: string | null;
@@ -84,6 +177,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
       
       if (data.result && Array.isArray(data.result)) {
         const provider = new JsonRpcProvider(ARC_TESTNET.rpcUrls[0]);
+        
         const tokensWithBalances = await Promise.all(
           data.result.map(async (token: Token) => {
             try {
@@ -93,14 +187,14 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                 contract.decimals().catch(() => 18)
               ]);
               const formattedBalance = formatUnits(balance, decimals);
-              const price = getTokenPrice(token.symbol || '???');
-              const value = parseFloat(formattedBalance) * price;
+              const logoUrl = getTokenLogoUrl(token.contractAddress, token.symbol || '');
               return {
                 ...token,
                 balance: formattedBalance,
                 decimals,
-                price,
-                value
+                logoUrl,
+                price: 0,
+                value: 0
               };
             } catch (e) {
               console.error('Failed to fetch balance for', token.symbol, e);
@@ -109,13 +203,23 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                 ...token, 
                 balance: existingToken?.balance || '0', 
                 decimals: existingToken?.decimals || 18,
-                price: getTokenPrice(token.symbol || '???'),
+                logoUrl: getTokenLogoUrl(token.contractAddress, token.symbol || ''),
+                price: 0,
                 value: 0 
               };
             }
           })
         );
-        const sortedTokens = tokensWithBalances.sort((a, b) => (b.value || 0) - (a.value || 0));
+        
+        const priceMap = await fetchTokenPrices(tokensWithBalances);
+        
+        const tokensWithPrices = tokensWithBalances.map(token => {
+          const price = priceMap.get(token.contractAddress.toLowerCase()) || 0;
+          const value = parseFloat(token.balance || '0') * price;
+          return { ...token, price, value };
+        });
+        
+        const sortedTokens = tokensWithPrices.sort((a, b) => (b.value || 0) - (a.value || 0));
         setTokens(sortedTokens);
       } else {
         setTokens([]);
@@ -291,11 +395,34 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                 <TableRow key={token.contractAddress} className="border-white/5 hover:bg-white/5" data-testid={`row-token-${token.contractAddress}`}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-                        <Coins size={14} className="text-primary" />
+                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 overflow-hidden">
+                        {token.logoUrl ? (
+                          <img 
+                            src={token.logoUrl} 
+                            alt={token.symbol} 
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
+                            }}
+                          />
+                        ) : null}
+                        <Coins size={14} className={`text-primary fallback-icon ${token.logoUrl ? 'hidden' : ''}`} />
                       </div>
                       <div>
-                        <span className="text-sm font-medium text-white">{token.symbol}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium text-white">{token.symbol}</span>
+                          <a 
+                            href={`${ARC_TESTNET.blockExplorerUrls[0]}/token/${token.contractAddress}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground hover:text-primary transition-colors"
+                            data-testid={`link-contract-${token.contractAddress}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        </div>
                         <span className="block text-[10px] text-muted-foreground">{token.name || 'Unknown'}</span>
                       </div>
                     </div>
