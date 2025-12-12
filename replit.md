@@ -1,8 +1,8 @@
-# Arc Revoke dApp
+# ArcDashboard - Token Portfolio Viewer
 
 ## Overview
 
-Arc Revoke is a Web3 security application that enables users to manage and revoke ERC-20 token approvals on the Arc Testnet blockchain. The application helps users protect their wallets by identifying and revoking unlimited token allowances that could pose security risks. It features automatic approval detection by scanning blockchain events, manual revocation capabilities, and tracks aggregate statistics of revokes performed across all users.
+ArcDashboard is a Web3 portfolio dashboard that enables users to view and track their token holdings on the Arc Testnet blockchain. Similar to DeBank, users can connect their wallet to view their portfolio or search any wallet address to see its token holdings. The application displays token balances, prices (testnet mock prices), and total portfolio value.
 
 ## User Preferences
 
@@ -25,33 +25,39 @@ Preferred communication style: Simple, everyday language.
 - **API Design**: RESTful JSON API under `/api/*` prefix
 - **Database ORM**: Drizzle ORM with PostgreSQL dialect
 
-### Key API Endpoints
-- `GET /api/stats?wallet=<address>` - Retrieve revoke statistics from blockchain for connected wallet
-- `POST /api/revoke` - Record a new token revoke action
-- `GET /api/revokes/recent` - Get recent revoke history
+### Key Features
+- **Portfolio View**: Connect wallet to see all token holdings on Arc Testnet
+- **Wallet Search**: Search any wallet address to view its token holdings
+- **Token Table**: Display tokens with price, amount, and USD value
+- **Total Value**: Calculate and display total portfolio value
+- **Real-time Data**: Fetch token data from ArcScan API and blockchain
 
 ### Data Storage
 - **Primary**: Blockchain-sourced data via ArcScan API (persists across deployments)
 - **Fallback Database**: PostgreSQL via Drizzle ORM
 - **Schema Location**: `shared/schema.ts`
-- **Blockchain Service**: `server/blockchain.ts` - Fetches revoke history from ArcScan API
 
 ### Web3 Integration
 - **Library**: ethers.js v6
 - **Network**: Arc Testnet (Chain ID: 0x4CEF22 / 5042002)
 - **Features**:
   - MetaMask wallet connection with automatic network switching
-  - ERC-20 approval detection via event log scanning
-  - Token revocation by setting approval to zero
+  - Token balance fetching via ERC-20 contract calls
+  - ArcScan API integration for token list
 
 ### Project Structure
 ```
 ├── client/           # React frontend
 │   ├── src/
 │   │   ├── components/   # React components
+│   │   │   ├── TokenPortfolio.tsx  # Main portfolio display component
+│   │   │   ├── ConnectWallet.tsx   # Wallet connection component
+│   │   │   └── ui/                 # shadcn/ui components
 │   │   ├── hooks/        # Custom React hooks
 │   │   ├── lib/          # Utilities and configs
+│   │   │   └── arc-network.ts  # Arc Testnet configuration
 │   │   └── pages/        # Route pages
+│   │       └── home.tsx  # Main dashboard page
 ├── server/           # Express backend
 │   ├── db.ts         # Database connection
 │   ├── routes.ts     # API route handlers
@@ -65,6 +71,7 @@ Preferred communication style: Simple, everyday language.
 ### Blockchain
 - **Arc Testnet RPC**: `https://rpc.testnet.arc.network`
 - **Block Explorer**: `https://testnet.arcscan.app`
+- **ArcScan API**: `https://testnet.arcscan.app/api`
 - **Native Currency**: USDC (18 decimals)
 
 ### Database
@@ -80,3 +87,11 @@ Preferred communication style: Simple, everyday language.
 - `@tanstack/react-query` - Data fetching and caching
 - `@radix-ui/*` - Accessible UI primitives
 - `tailwindcss` - Utility-first CSS framework
+
+## Recent Changes (December 2025)
+- Renamed from ArcRevoke to ArcDashboard
+- Removed all revoke functionality
+- Added TokenPortfolio component for viewing wallet tokens
+- Added wallet search functionality
+- Updated UI to DeBank-style dashboard layout
+- Added Portfolio tab for connected wallet view

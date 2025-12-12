@@ -1,131 +1,47 @@
 import { ConnectWallet } from "@/components/ConnectWallet";
-import { ApprovalList } from "@/components/ApprovalList";
-import { ShieldCheck, Search, Activity, Lock, FileCheck, X } from "lucide-react";
+import { TokenPortfolio } from "@/components/TokenPortfolio";
+import { LayoutDashboard, Search, Wallet, X, Coins } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import generatedImage from '@assets/generated_images/futuristic_abstract_dark_crypto_background_with_neon_networks.png';
-import { useState, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { JsonRpcProvider, Contract, formatUnits } from "ethers";
-import { ARC_TESTNET } from "@/lib/arc-network";
-
-interface ContractSearchResult {
-  address: string;
-  name?: string;
-  symbol?: string;
-  decimals?: number;
-  totalSupply?: string;
-  isToken: boolean;
-}
-
-const ERC20_ABI = [
-  "function name() view returns (string)",
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-  "function totalSupply() view returns (uint256)"
-];
+import { useState, useEffect } from "react";
 
 export default function Home() {
   const [account, setAccount] = useState<string | null>(null);
   const [wrongNetwork, setWrongNetwork] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState<ContractSearchResult | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const { data: stats, refetch: refetchStats } = useQuery<{ totalRevokes: number; totalValueSecured: string }>({
-    queryKey: ['/api/stats', account],
-    queryFn: async () => {
-      const url = account ? `/api/stats?wallet=${account}` : '/api/stats';
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Failed to fetch stats');
-      return response.json();
-    },
-    refetchInterval: 30000,
-    staleTime: 15000,
-    enabled: true,
-  });
+  const [searchedWallet, setSearchedWallet] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("portfolio");
 
-  const handleStatsUpdate = useCallback(() => {
-    refetchStats();
-  }, [refetchStats]);
-
-  useEffect(() => {
-    if (account) {
-      refetchStats();
-    }
-  }, [account, refetchStats]);
-
-  const formatCurrency = (value: string | undefined) => {
-    if (!value) return "$0.00";
-    const num = parseFloat(value);
-    if (num < 1000) return `$${num.toFixed(2)}`;
-    if (num < 1000000) return `$${(num / 1000).toFixed(2)}K`;
-    return `$${(num / 1000000).toFixed(2)}M`;
-  };
-
-  const searchContract = async () => {
+  const handleSearch = () => {
     if (!searchQuery.trim()) return;
     
-    setIsSearching(true);
-    setSearchError(null);
-    setSearchResult(null);
-
-    try {
-      const provider = new JsonRpcProvider(ARC_TESTNET.rpcUrls[0]);
-      const address = searchQuery.trim();
-
-      // Validate address format
-      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        setSearchError("Invalid address format. Please enter a valid contract address.");
-        setIsSearching(false);
-        return;
-      }
-
-      // Check if it's a contract
-      const code = await provider.getCode(address);
-      if (code === "0x") {
-        setSearchError("No contract found at this address on Arc Testnet.");
-        setIsSearching(false);
-        return;
-      }
-
-      // Try to get ERC20 info
-      const contract = new Contract(address, ERC20_ABI, provider);
-      let name = "", symbol = "", decimals = 18, totalSupply = "0";
-      let isToken = false;
-
-      try {
-        [name, symbol, decimals, totalSupply] = await Promise.all([
-          contract.name().catch(() => "Unknown Contract"),
-          contract.symbol().catch(() => "???"),
-          contract.decimals().catch(() => 18),
-          contract.totalSupply().catch(() => BigInt(0))
-        ]);
-        isToken = true;
-      } catch (e) {
-        name = "Unknown Contract";
-        symbol = "???";
-      }
-
-      setSearchResult({
-        address,
-        name,
-        symbol,
-        decimals,
-        totalSupply: isToken ? formatUnits(totalSupply, decimals) : "N/A",
-        isToken
-      });
-    } catch (error) {
-      console.error("Search error:", error);
-      setSearchError("Failed to search contract. Please try again.");
-    } finally {
-      setIsSearching(false);
+    const address = searchQuery.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return;
     }
+    
+    setSearchedWallet(address);
+    setActiveTab("search");
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      searchContract();
+      handleSearch();
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchedWallet(null);
+    setActiveTab("portfolio");
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    if (value === "portfolio") {
+      setSearchedWallet(null);
     }
   };
 
@@ -141,112 +57,163 @@ export default function Home() {
       />
       
       <nav className="relative z-10 border-b border-white/10 bg-black/50 backdrop-blur-lg">
-        <div className="container mx-auto px-4 h-20 flex items-center justify-between">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 bg-primary/20 rounded-lg flex items-center justify-center border border-primary/50 shadow-[0_0_15px_rgba(0,243,255,0.3)]">
-              <ShieldCheck className="text-primary h-6 w-6" />
+              <LayoutDashboard className="text-primary h-6 w-6" />
             </div>
             <div className="flex flex-col">
-              <h1 className="text-2xl font-display font-bold text-white tracking-widest">
-                ARC<span className="text-primary">REVOKE</span>
+              <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-widest">
+                ARC<span className="text-primary">DASHBOARD</span>
               </h1>
-              <span className="text-[10px] text-muted-foreground tracking-[0.2em] font-mono">TESTNET SECURE PROTOCOL</span>
+              <span className="text-[10px] text-muted-foreground tracking-[0.2em] font-mono hidden sm:block">ARC TESTNET PORTFOLIO</span>
+            </div>
+          </div>
+
+          <div className="flex-1 max-w-xl mx-4 hidden md:block">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search address / memo / Web3 ID" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleKeyPress}
+                className="bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono pl-10 pr-20 h-10"
+                data-testid="input-search"
+              />
+              {searchQuery && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-12 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
+                  data-testid="button-clear-search"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+              <Button 
+                onClick={handleSearch}
+                size="sm"
+                className="absolute right-1 top-1/2 -translate-y-1/2 bg-primary text-black font-bold h-8"
+                data-testid="button-search"
+              >
+                Go
+              </Button>
             </div>
           </div>
           
           <ConnectWallet onAccountChange={setAccount} onNetworkChange={setWrongNetwork} />
         </div>
+
+        <div className="md:hidden px-4 pb-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Search address..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleKeyPress}
+              className="bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono pl-10 pr-20 h-10"
+              data-testid="input-search-mobile"
+            />
+            {searchQuery && (
+              <button
+                onClick={clearSearch}
+                className="absolute right-12 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            <Button 
+              onClick={handleSearch}
+              size="sm"
+              className="absolute right-1 top-1/2 -translate-y-1/2 bg-primary text-black font-bold h-8"
+            >
+              Go
+            </Button>
+          </div>
+        </div>
       </nav>
 
-      <main className="relative z-10 container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <div className="glass-panel p-6 rounded-xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <FileCheck size={64} />
-            </div>
-            <h3 className="text-muted-foreground text-sm font-mono mb-2">REVOKED CONTRACTS</h3>
-            <div className="flex items-end gap-2">
-              <span className="text-3xl font-display font-bold text-primary" data-testid="text-revoked-count">
-                {account ? (stats?.totalRevokes ?? 0) : '-'}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {account ? 'Your revokes on-chain' : 'Connect wallet to view'}
-            </p>
-          </div>
-
-          <div className="glass-panel p-6 rounded-xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <Lock size={64} />
-            </div>
-            <h3 className="text-muted-foreground text-sm font-mono mb-2">ASSETS SECURED</h3>
-            <div className="flex items-end gap-2">
-              <span className="text-3xl font-display font-bold text-green-400" data-testid="text-assets-secured">
-                {account ? formatCurrency(stats?.totalValueSecured) : '-'}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {account ? 'Value protected on-chain' : 'Connect wallet to view'}
-            </p>
-          </div>
-
-          <div className="glass-panel p-6 rounded-xl relative overflow-hidden group flex flex-col justify-center">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <Search size={64} />
-            </div>
-            <div className="flex flex-col gap-2 relative z-10">
-              <Input 
-                placeholder="Enter contract address (0x...)" 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyPress={handleKeyPress}
-                className="bg-black/40 border-white/10 focus:border-primary/50 focus:ring-primary/20 font-mono w-full"
-                data-testid="input-search"
-              />
-              <Button 
-                onClick={searchContract} 
-                disabled={isSearching || !searchQuery.trim()}
-                className="bg-primary text-black font-bold w-full"
-                data-testid="button-search"
+      <main className="relative z-10 container mx-auto px-4 py-6">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
+            <TabsList className="bg-black/40">
+              <TabsTrigger 
+                value="portfolio" 
+                className="data-[state=active]:bg-primary data-[state=active]:text-black gap-2" 
+                data-testid="tab-portfolio"
               >
-                {isSearching ? "..." : "Search"}
-              </Button>
-            </div>
-            
-            {searchError && (
-              <p className="text-red-400 text-xs mt-2 font-mono">{searchError}</p>
-            )}
-            
-            {searchResult && (
-              <div className="mt-4 p-3 bg-black/40 rounded-lg border border-white/10 relative">
-                <button
-                  onClick={() => setSearchResult(null)}
-                  className="absolute top-2 right-2 text-muted-foreground hover:text-white transition-colors"
-                  data-testid="button-close-search"
+                <Wallet className="h-4 w-4" />
+                Portfolio
+              </TabsTrigger>
+              {searchedWallet && (
+                <TabsTrigger 
+                  value="search" 
+                  className="data-[state=active]:bg-primary data-[state=active]:text-black gap-2" 
+                  data-testid="tab-search"
                 >
-                  <X className="h-4 w-4" />
-                </button>
-                <div className="flex items-center gap-2 mb-2 pr-6">
-                  <Activity className="text-primary h-4 w-4" />
-                  <span className="text-white font-medium text-sm">{searchResult.name}</span>
-                  {searchResult.isToken && (
-                    <span className="text-primary text-xs font-mono">({searchResult.symbol})</span>
-                  )}
-                </div>
-                <p className="text-[10px] text-muted-foreground font-mono break-all">{searchResult.address}</p>
-                {searchResult.isToken && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Total Supply: {parseFloat(searchResult.totalSupply || '0').toLocaleString()} {searchResult.symbol}
-                  </p>
-                )}
-              </div>
-            )}
+                  <Search className="h-4 w-4" />
+                  Search Result
+                </TabsTrigger>
+              )}
+            </TabsList>
+            
+            <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+              Arc Testnet
+            </div>
           </div>
-        </div>
 
-        <div className="glass-panel rounded-xl p-6 md:p-8 min-h-[500px]">
-          <ApprovalList account={account} onStatsUpdate={handleStatsUpdate} wrongNetwork={wrongNetwork} />
-        </div>
+          <TabsContent value="portfolio" className="mt-0">
+            <div className="glass-panel rounded-xl p-6 md:p-8 min-h-[500px]">
+              {!account ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+                    <Wallet size={32} className="text-primary" />
+                  </div>
+                  <h3 className="text-2xl font-display font-bold text-white">Connect Wallet</h3>
+                  <p className="text-muted-foreground max-w-md">Connect your wallet to view your token portfolio on Arc Testnet</p>
+                </div>
+              ) : (
+                <TokenPortfolio account={account} wrongNetwork={wrongNetwork} />
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="search" className="mt-0">
+            <div className="glass-panel rounded-xl p-6 md:p-8 min-h-[500px]">
+              {searchedWallet ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-2">
+                      <Search className="h-5 w-5 text-primary" />
+                      <span className="text-white font-medium">Wallet Search</span>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={clearSearch}
+                      className="text-muted-foreground hover:text-white"
+                      data-testid="button-close-search"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Clear Search
+                    </Button>
+                  </div>
+                  <TokenPortfolio account={null} searchedWallet={searchedWallet} wrongNetwork={wrongNetwork} />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+                    <Search size={32} className="text-primary" />
+                  </div>
+                  <h3 className="text-2xl font-display font-bold text-white">Search Wallet</h3>
+                  <p className="text-muted-foreground max-w-md">Enter a wallet address to view its token holdings</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </main>
 
       <footer className="relative z-10 border-t border-white/5 bg-black/80 mt-12 py-8">
@@ -254,10 +221,10 @@ export default function Home() {
           <div className="flex flex-col items-center gap-6">
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 bg-primary/20 rounded-lg flex items-center justify-center border border-primary/50">
-                <ShieldCheck className="text-primary h-4 w-4" />
+                <LayoutDashboard className="text-primary h-4 w-4" />
               </div>
               <span className="text-xl font-display font-bold text-white tracking-widest">
-                ARC<span className="text-primary">REVOKE</span>
+                ARC<span className="text-primary">DASHBOARD</span>
               </span>
             </div>
             
@@ -342,7 +309,7 @@ export default function Home() {
             </div>
             
             <p className="text-muted-foreground text-sm font-mono text-center">
-              2025 ArcRevoke - Built on Arc Network. All rights reserved.
+              2025 ArcDashboard - Built on Arc Network. All rights reserved.
             </p>
           </div>
         </div>

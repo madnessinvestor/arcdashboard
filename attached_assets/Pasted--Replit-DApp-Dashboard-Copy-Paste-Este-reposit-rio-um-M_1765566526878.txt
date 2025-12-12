@@ -1,0 +1,326 @@
+# Replit DApp Dashboard — Copy & Paste
+
+Este repositório é um **MVP completo** de um DApp Dashboard de criptomoedas pronto para colar no Replit. Segue tudo que você precisa: arquivos, configuração e instruções passo-a-passo.
+
+> Arquivos incluídos (cole cada arquivo no Replit com o mesmo caminho):
+> - package.json
+> - index.html
+> - vite.config.js
+> - tailwind.config.cjs
+> - postcss.config.cjs
+> - src/main.jsx
+> - src/App.jsx
+> - src/components/WalletConnect.jsx
+> - src/components/Dashboard.jsx
+> - src/components/TokenTable.jsx
+> - src/utils/coingecko.js
+> - src/styles/index.css
+>
+---
+
+/* package.json */
+{
+  "name": "replit-dapp-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "ethers": "^6.8.0",
+    "wagmi": "^1.5.10",
+    "viem": "^1.1.0",
+    "@wagmi/core": "^1.0.0",
+    "axios": "^1.4.0",
+    "chart.js": "^4.3.0",
+    "react-chartjs-2": "^5.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.1.0",
+    "tailwindcss": "^4.2.1",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0"
+  }
+}
+
+---
+
+/* index.html */
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DApp Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+---
+
+/* vite.config.js */
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+})
+
+---
+
+/* tailwind.config.cjs */
+module.exports = {
+  content: ['./index.html', './src/**/*.{js,jsx}'],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+
+---
+
+/* postcss.config.cjs */
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+---
+
+/* src/styles/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { @apply bg-slate-50 text-slate-900 }
+
+---
+
+/* src/main.jsx */
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import App from './App'
+import './styles/index.css'
+
+createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+)
+
+---
+
+/* src/App.jsx */
+import React from 'react'
+import WalletConnect from './components/WalletConnect'
+import Dashboard from './components/Dashboard'
+
+export default function App(){
+  return (
+    <div className="min-h-screen p-6">
+      <header className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">DApp Dashboard • Replit MVP</h1>
+        <WalletConnect />
+      </header>
+
+      <main>
+        <Dashboard />
+      </main>
+
+      <footer className="mt-12 text-sm text-slate-500">Made for Replit — copy & paste</footer>
+    </div>
+  )
+}
+
+---
+
+/* src/components/WalletConnect.jsx */
+import React, {useState, useEffect} from 'react'
+import { configureChains, createConfig, WagmiConfig, useAccount, useConnect, useDisconnect, useNetwork } from 'wagmi'
+import { publicProvider } from 'wagmi/providers/public'
+import { mainnet, polygon, optimism, arbitrum } from 'viem/chains'
+import { InjectedConnector } from 'wagmi/connectors/injected'
+
+// We'll wrap a tiny connector UI here. Wagmi requires a provider config; we keep it minimal.
+
+const chains = [mainnet, polygon, optimism, arbitrum]
+const { publicClient } = configureChains(chains, [publicProvider()])
+const config = createConfig({ autoConnect: false, connectors: [new InjectedConnector()], publicClient })
+
+function Inner(){
+  const { address, isConnected } = useAccount()
+  const { connect } = useConnect({ connector: new InjectedConnector() })
+  const { disconnect } = useDisconnect()
+  const { chain } = useNetwork()
+
+  return (
+    <div className="flex items-center gap-3">
+      {isConnected ? (
+        <>
+          <div className="text-sm">{address?.slice(0,6)}...{address?.slice(-4)}</div>
+          <div className="text-xs text-slate-500">{chain?.name || 'Network'}</div>
+          <button className="px-3 py-1 bg-red-500 text-white rounded" onClick={() => disconnect()}>Disconnect</button>
+        </>
+      ) : (
+        <>
+          <button className="px-3 py-1 bg-blue-600 text-white rounded" onClick={() => connect()}>Connect Wallet</button>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function WalletConnect(){
+  return (
+    <WagmiConfig config={config}>
+      <Inner />
+    </WagmiConfig>
+  )
+}
+
+---
+
+/* src/components/Dashboard.jsx */
+import React, {useEffect, useState} from 'react'
+import { getPricesFor } from '../utils/coingecko'
+import TokenTable from './TokenTable'
+import { Line } from 'react-chartjs-2'
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js'
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
+
+export default function Dashboard(){
+  const [prices, setPrices] = useState({})
+  const watched = ['ethereum','bitcoin','chainlink','polygon']
+
+  useEffect(()=>{
+    let mounted = true
+    async function load(){
+      const p = await getPricesFor(watched)
+      if(mounted) setPrices(p)
+    }
+    load()
+    const id = setInterval(load, 30_000)
+    return () => { mounted=false; clearInterval(id) }
+  },[])
+
+  const labels = Object.keys(prices)
+  const data = {
+    labels,
+    datasets: [
+      { label: 'USD price (watched)', data: Object.values(prices).map(x=>x.usd), tension: 0.2 }
+    ]
+  }
+
+  return (
+    <div className="grid gap-6">
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 bg-white rounded shadow">Total Portfolio: <div className="text-2xl font-bold">$0.00</div></div>
+        <div className="p-4 bg-white rounded shadow">Tokens: <div className="text-2xl font-bold">0</div></div>
+        <div className="p-4 bg-white rounded shadow">Pending Txns: <div className="text-2xl font-bold">0</div></div>
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="col-span-2 p-4 bg-white rounded shadow">
+          <h2 className="font-semibold mb-2">Price chart</h2>
+          <div style={{height: 240}}>
+            <Line data={data} />
+          </div>
+        </div>
+
+        <div className="p-4 bg-white rounded shadow">
+          <h3 className="font-semibold mb-2">Watched</h3>
+          <TokenTable tokens={Object.entries(prices).map(([id, v])=>({ id, price: v.usd }))} />
+        </div>
+      </section>
+
+      <section className="p-4 bg-white rounded shadow">
+        <h3 className="font-semibold mb-2">Transactions</h3>
+        <div className="text-sm text-slate-500">Aqui você colocaria o histórico on-chain do usuário (getTransactions via RPC / third-party)</div>
+      </section>
+    </div>
+  )
+}
+
+---
+
+/* src/components/TokenTable.jsx */
+import React from 'react'
+
+export default function TokenTable({tokens=[]}){
+  return (
+    <table className="w-full text-left text-sm">
+      <thead>
+        <tr className="text-slate-500">
+          <th className="pb-2">Token</th>
+          <th className="pb-2">Price (USD)</th>
+          <th className="pb-2">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tokens.map(t=> (
+          <tr key={t.id} className="border-t">
+            <td className="py-2">{t.id}</td>
+            <td className="py-2">{t.price ? `$${t.price.toLocaleString()}` : '—'}</td>
+            <td className="py-2"><button className="px-2 py-1 bg-slate-100 rounded">View</button></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+---
+
+/* src/utils/coingecko.js */
+import axios from 'axios'
+
+const COINGECKO = 'https://api.coingecko.com/api/v3'
+
+export async function getPricesFor(ids = []){
+  if(ids.length === 0) return {}
+  try{
+    const q = ids.join(',')
+    const res = await axios.get(`${COINGECKO}/simple/price?ids=${q}&vs_currencies=usd&include_24hr_change=true`)
+    return res.data
+  }catch(e){
+    console.error('Coingecko error', e)
+    return {}
+  }
+}
+
+---
+
+# COMO USAR (passo-a-passo MINIMO para Replit)
+
+1. Crie um novo Replit (template: "Node.js" ou "Bash").
+2. No painel de arquivos, crie os arquivos acima nos caminhos especificados. Copie/cole cada bloco no arquivo correspondente.
+3. No Replit, abra a shell e rode `npm install` — isso instalará dependências.
+4. Rode `npm run dev` (ou use o botão Run se preferir). O Vite iniciará e você verá a URL do preview.
+
+# O QUE FAZ ESTE MVP
+
+- Conexão básica com carteira via Wagmi/Injected (MetaMask, Rabby etc.).
+- Busca de preços on-demand do CoinGecko (watchlist simples).
+- Gráfico de preços (Chart.js).
+- Estrutura modular: você pode adicionar facilmente chamadas RPC para buscar saldos ERC-20, NFTs, e histórico de transações.
+
+# MELHORIAS RECOMENDADAS (próximos passos)
+
+- Integrar Alchemy/Infura para RPC estável e Ethers provider.
+- Buscar balances ERC-20 via `viem` ou `ethers` (ex.: multicall).
+- Implementar cache no backend (opcional) e endpoints para acelerar consultas.
+- Adicionar swap / send (integrar 0x / 1inch / Uniswap SDK).
+- Adicionar verificação de contrato (ex: Etherscan) antes de interagir.
+
+---
+
+Se quiser, posso gerar também um `deploy.sh` simples ou adicionar um exemplo de chamada que lista ERC-20 balances do usuário (multicall) — quer que eu adicione isso também?
