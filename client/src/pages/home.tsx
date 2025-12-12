@@ -189,11 +189,6 @@ export default function Home() {
                 </TabsTrigger>
               )}
             </TabsList>
-            
-            <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              Arc Testnet
-            </div>
           </div>
 
           <TabsContent value="portfolio" className="mt-0">
