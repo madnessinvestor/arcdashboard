@@ -27,6 +27,7 @@ interface DetectedApproval {
   valueAtRisk?: number;
   balance?: string;
   isUnlimited?: boolean;
+  approvalTimestamp?: number;
 }
 
 const ERC20_ABI = [
@@ -142,19 +143,24 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
           const logsData = await logsResponse.json();
           
           if (logsData.result && Array.isArray(logsData.result) && logsData.result.length > 0) {
-            const spendersSet = new Set<string>();
+            const spenderTimestamps = new Map<string, number>();
             
             for (const log of logsData.result) {
               if (log.topics && log.topics[2]) {
-                const spender = '0x' + log.topics[2].slice(-40);
-                spendersSet.add(spender.toLowerCase());
+                const spender = ('0x' + log.topics[2].slice(-40)).toLowerCase();
+                // Get the most recent timestamp for each spender
+                const logTimestamp = parseInt(log.timeStamp, 16) || parseInt(log.timeStamp, 10) || 0;
+                const existingTimestamp = spenderTimestamps.get(spender) || 0;
+                if (logTimestamp > existingTimestamp) {
+                  spenderTimestamps.set(spender, logTimestamp);
+                }
               }
             }
 
             const contract = new Contract(token.contractAddress, ERC20_ABI, provider);
             const decimals = token.decimals || 18;
             
-            for (const spender of Array.from(spendersSet)) {
+            for (const [spender, timestamp] of Array.from(spenderTimestamps.entries())) {
               try {
                 const allowance = await contract.allowance(account, spender);
                 if (allowance > BigInt(0)) {
@@ -174,7 +180,8 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                     allowance: formatUnits(allowance, decimals),
                     valueAtRisk: displayValue,
                     balance: token.balance || '0',
-                    isUnlimited
+                    isUnlimited,
+                    approvalTimestamp: timestamp
                   });
                 }
               } catch (e) {
@@ -353,6 +360,20 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
     return `${(num / 1000000000).toFixed(2)}B`;
   };
 
+  const formatRelativeTime = (timestamp: number | undefined) => {
+    if (!timestamp) return '-';
+    const now = Math.floor(Date.now() / 1000);
+    const diff = now - timestamp;
+    
+    if (diff < 60) return `${diff} seconds ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)} days ago`;
+    if (diff < 2592000) return `${Math.floor(diff / 604800)} weeks ago`;
+    if (diff < 31536000) return `${Math.floor(diff / 2592000)} months ago`;
+    return `${Math.floor(diff / 31536000)} years ago`;
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
@@ -464,6 +485,7 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                   <TableHead className="text-muted-foreground font-mono uppercase text-xs">Token</TableHead>
                   <TableHead className="text-muted-foreground font-mono uppercase text-xs">Your Balance</TableHead>
                   <TableHead className="text-muted-foreground font-mono uppercase text-xs">Approved</TableHead>
+                  <TableHead className="text-muted-foreground font-mono uppercase text-xs">Approval Time</TableHead>
                   <TableHead className="text-muted-foreground font-mono uppercase text-xs">Spender</TableHead>
                   <TableHead className="w-[100px]"></TableHead>
                 </TableRow>
@@ -512,6 +534,11 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                           </span>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs font-mono text-muted-foreground" data-testid={`text-time-${approval.id}`}>
+                        {formatRelativeTime(approval.approvalTimestamp)}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <span className="text-sm font-mono text-white">{formatAddress(approval.spenderAddress)}</span>
