@@ -1,5 +1,5 @@
 export const ARC_TESTNET = {
-  chainId: '0x4CEF22', // 5042002
+  chainId: '0x4CEF52', // 5042002
   chainName: 'Arc Testnet',
   nativeCurrency: {
     name: 'USDC',
