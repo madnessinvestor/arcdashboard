@@ -16,6 +16,8 @@ import inameLogo from "@assets/INAME_1765571844408.png";
 import arcsbtLogo from "@assets/ARCSBT_1765571844409.png";
 import gmLogo from "@assets/GM_1765571844410.png";
 import zkcodexLogo from "@assets/ZKCODEX_1765571844410.png";
+import atclLogo from "@assets/ATCL_1765574269315.png";
+import axoLogo from "@assets/AXO_1765574269315.png";
 
 interface Token {
   contractAddress: string;
@@ -64,6 +66,8 @@ const TOKEN_LOGOS: Record<string, string> = {
   'arcsbt': arcsbtLogo,
   'gm': gmLogo,
   'zkcodex': zkcodexLogo,
+  'atcl': atclLogo,
+  'axo': axoLogo,
   'usdc': 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
   'usdt': 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
   'dai': 'https://assets.coingecko.com/coins/images/9956/small/4943.png',
