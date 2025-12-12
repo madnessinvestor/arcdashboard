@@ -2,23 +2,50 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertRevokeHistorySchema } from "@shared/schema";
+import { fetchRevokeStatsFromBlockchain } from "./blockchain";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Get revoke statistics
   app.get("/api/stats", async (req, res) => {
     try {
-      const stats = await storage.getRevokeStats();
-      res.json(stats);
+      const walletAddress = req.query.wallet as string | undefined;
+      
+      if (walletAddress) {
+        const blockchainStats = await fetchRevokeStatsFromBlockchain(walletAddress);
+        return res.json({
+          totalRevokes: blockchainStats.totalRevokes,
+          totalValueSecured: blockchainStats.totalValueSecured
+        });
+      }
+      
+      res.json({
+        totalRevokes: 0,
+        totalValueSecured: "0"
+      });
     } catch (error) {
       console.error("Error fetching stats:", error);
       res.status(500).json({ error: "Failed to fetch stats" });
     }
   });
 
-  // Record a new revoke
+  app.get("/api/stats/blockchain", async (req, res) => {
+    try {
+      const walletAddress = req.query.wallet as string | undefined;
+      
+      if (!walletAddress) {
+        return res.status(400).json({ error: "Wallet address is required" });
+      }
+      
+      const stats = await fetchRevokeStatsFromBlockchain(walletAddress);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching blockchain stats:", error);
+      res.status(500).json({ error: "Failed to fetch blockchain stats" });
+    }
+  });
+
   app.post("/api/revoke", async (req, res) => {
     try {
       const parsed = insertRevokeHistorySchema.safeParse(req.body);
@@ -34,7 +61,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get recent revokes
   app.get("/api/revokes/recent", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;

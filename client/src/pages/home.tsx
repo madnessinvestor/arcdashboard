@@ -32,16 +32,28 @@ export default function Home() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<ContractSearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
-  // Fetch stats from the server
   const { data: stats, refetch: refetchStats } = useQuery<{ totalRevokes: number; totalValueSecured: string }>({
-    queryKey: ['/api/stats'],
-    refetchInterval: 120000, // Refresh every 2 minutes to avoid congestion
-    staleTime: 60000, // Consider data fresh for 1 minute
+    queryKey: ['/api/stats', account],
+    queryFn: async () => {
+      const url = account ? `/api/stats?wallet=${account}` : '/api/stats';
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      return response.json();
+    },
+    refetchInterval: 30000,
+    staleTime: 15000,
+    enabled: true,
   });
 
   const handleStatsUpdate = useCallback(() => {
     refetchStats();
   }, [refetchStats]);
+
+  useEffect(() => {
+    if (account) {
+      refetchStats();
+    }
+  }, [account, refetchStats]);
 
   const formatCurrency = (value: string | undefined) => {
     if (!value) return "$0.00";
@@ -155,10 +167,12 @@ export default function Home() {
             <h3 className="text-muted-foreground text-sm font-mono mb-2">REVOKED CONTRACTS</h3>
             <div className="flex items-end gap-2">
               <span className="text-3xl font-display font-bold text-primary" data-testid="text-revoked-count">
-                {stats?.totalRevokes ?? 0}
+                {account ? (stats?.totalRevokes ?? 0) : '-'}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Total revokes performed</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              {account ? 'Your revokes on-chain' : 'Connect wallet to view'}
+            </p>
           </div>
 
           <div className="glass-panel p-6 rounded-xl relative overflow-hidden group">
@@ -168,10 +182,12 @@ export default function Home() {
             <h3 className="text-muted-foreground text-sm font-mono mb-2">ASSETS SECURED</h3>
             <div className="flex items-end gap-2">
               <span className="text-3xl font-display font-bold text-green-400" data-testid="text-assets-secured">
-                {formatCurrency(stats?.totalValueSecured)}
+                {account ? formatCurrency(stats?.totalValueSecured) : '-'}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Value protected by revokes</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              {account ? 'Value protected on-chain' : 'Connect wallet to view'}
+            </p>
           </div>
 
           <div className="glass-panel p-6 rounded-xl relative overflow-hidden group flex flex-col justify-center">
