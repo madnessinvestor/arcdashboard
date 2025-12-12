@@ -7,6 +7,12 @@ import { useToast } from "@/hooks/use-toast";
 import { JsonRpcProvider, Contract, formatUnits } from "ethers";
 import { ARC_TESTNET } from "@/lib/arc-network";
 
+import sacsLogo from "@assets/sacs_1765569951347.png";
+import kittyLogo from "@assets/kitty_1765569951348.png";
+import doggLogo from "@assets/dogg_1765569951349.png";
+import eurcLogo from "@assets/eurc_1765569951350.jpg";
+import racsLogo from "@assets/racs_1765569951350.png";
+
 interface Token {
   contractAddress: string;
   name: string;
@@ -25,105 +31,108 @@ const ERC20_ABI = [
   "function balanceOf(address account) view returns (uint256)"
 ];
 
+const UNISWAP_V2_PAIR_ABI = [
+  "function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
+  "function token0() view returns (address)",
+  "function token1() view returns (address)"
+];
+
+const USDC_ADDRESS = "0x3600000000000000000000000000000000000000".toLowerCase();
+const EURC_ADDRESS = "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a".toLowerCase();
+
 const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'UST', 'FRAX', 'TUSD', 'GUSD', 'USDP', 'SUSD'];
 
-const TOKEN_LOGO_SOURCES = {
-  trustwallet: (address: string, chainId: string = 'ethereum') => 
-    `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chainId}/assets/${address}/logo.png`,
-  coingecko: (symbol: string) => 
-    `https://assets.coingecko.com/coins/images/small/${symbol.toLowerCase()}.png`,
+const TOKEN_LOGOS: Record<string, string> = {
+  'sacs': sacsLogo,
+  'kitty': kittyLogo,
+  'dogg': doggLogo,
+  'eurc': eurcLogo,
+  'racs': racsLogo,
+  'srac': racsLogo,
+  'usdc': 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
+  'usdt': 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
+  'dai': 'https://assets.coingecko.com/coins/images/9956/small/4943.png',
+  'weth': 'https://assets.coingecko.com/coins/images/2518/small/weth.png',
+  'eth': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  'wbtc': 'https://assets.coingecko.com/coins/images/7598/small/wrapped_bitcoin_wbtc.png',
+  'btc': 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
 };
 
 const getTokenLogoUrl = (address: string, symbol: string): string => {
   const symbolLower = symbol.toLowerCase();
-  const knownLogos: Record<string, string> = {
-    'usdc': 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
-    'usdt': 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
-    'dai': 'https://assets.coingecko.com/coins/images/9956/small/4943.png',
-    'weth': 'https://assets.coingecko.com/coins/images/2518/small/weth.png',
-    'eth': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
-    'wbtc': 'https://assets.coingecko.com/coins/images/7598/small/wrapped_bitcoin_wbtc.png',
-    'btc': 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
-    'arc': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
-  };
-  
-  return knownLogos[symbolLower] || '';
+  return TOKEN_LOGOS[symbolLower] || '';
 };
 
 interface PriceCache {
-  [address: string]: {
+  [key: string]: {
     price: number;
     timestamp: number;
   };
 }
 
 const priceCache: PriceCache = {};
-const CACHE_DURATION = 60000;
+const CACHE_DURATION = 30000;
 
-async function fetchTokenPriceFromDexScreener(contractAddress: string, symbol: string): Promise<number> {
-  const cached = priceCache[contractAddress.toLowerCase()];
+async function fetchPriceFromCoinGecko(symbol: string): Promise<number> {
+  const cacheKey = `coingecko_${symbol.toLowerCase()}`;
+  const cached = priceCache[cacheKey];
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     return cached.price;
   }
 
-  const upperSymbol = symbol.toUpperCase();
-  if (STABLECOIN_SYMBOLS.includes(upperSymbol)) {
-    priceCache[contractAddress.toLowerCase()] = { price: 1.0, timestamp: Date.now() };
-    return 1.0;
-  }
+  const symbolToId: Record<string, string> = {
+    'eurc': 'eurc',
+    'usdc': 'usd-coin',
+    'usdt': 'tether',
+    'dai': 'dai',
+    'weth': 'weth',
+    'eth': 'ethereum',
+    'wbtc': 'wrapped-bitcoin',
+    'btc': 'bitcoin',
+  };
+
+  const coinId = symbolToId[symbol.toLowerCase()];
+  if (!coinId) return 0;
 
   try {
     const response = await fetch(
-      `https://api.dexscreener.com/latest/dex/tokens/${contractAddress}`
+      `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`
     );
     
-    if (!response.ok) {
-      throw new Error('DexScreener API request failed');
-    }
+    if (!response.ok) throw new Error('CoinGecko API failed');
     
     const data = await response.json();
+    const price = data[coinId]?.usd || 0;
     
-    if (data.pairs && data.pairs.length > 0) {
-      const usdcPairs = data.pairs.filter((p: any) => 
-        p.quoteToken?.symbol?.toUpperCase() === 'USDC' ||
-        p.quoteToken?.symbol?.toUpperCase() === 'USDT'
-      );
-      
-      const bestPair = usdcPairs.length > 0 
-        ? usdcPairs.reduce((prev: any, current: any) => 
-            (prev.liquidity?.usd || 0) > (current.liquidity?.usd || 0) ? prev : current
-          )
-        : data.pairs.reduce((prev: any, current: any) => 
-            (prev.liquidity?.usd || 0) > (current.liquidity?.usd || 0) ? prev : current
-          );
-      
-      const price = parseFloat(bestPair.priceUsd) || 0;
-      priceCache[contractAddress.toLowerCase()] = { price, timestamp: Date.now() };
-      return price;
-    }
+    priceCache[cacheKey] = { price, timestamp: Date.now() };
+    return price;
   } catch (error) {
-    console.error('Failed to fetch price from DexScreener:', error);
+    console.error('CoinGecko API error:', error);
+    return 0;
   }
-  
-  return 0;
 }
 
 async function fetchTokenPrices(tokens: Token[]): Promise<Map<string, number>> {
   const priceMap = new Map<string, number>();
   
-  const nonStableTokens = tokens.filter(t => 
-    !STABLECOIN_SYMBOLS.includes(t.symbol?.toUpperCase() || '')
-  );
-  
-  tokens.forEach(t => {
-    if (STABLECOIN_SYMBOLS.includes(t.symbol?.toUpperCase() || '')) {
-      priceMap.set(t.contractAddress.toLowerCase(), 1.0);
+  const pricePromises = tokens.map(async (token) => {
+    const upperSymbol = token.symbol?.toUpperCase() || '';
+    const addressLower = token.contractAddress.toLowerCase();
+    
+    if (upperSymbol === 'USDC' || addressLower === USDC_ADDRESS) {
+      return { address: addressLower, price: 1.0 };
     }
-  });
-  
-  const pricePromises = nonStableTokens.map(async (token) => {
-    const price = await fetchTokenPriceFromDexScreener(token.contractAddress, token.symbol);
-    return { address: token.contractAddress.toLowerCase(), price };
+    
+    if (STABLECOIN_SYMBOLS.includes(upperSymbol) && upperSymbol !== 'EURC') {
+      return { address: addressLower, price: 1.0 };
+    }
+    
+    const coingeckoPrice = await fetchPriceFromCoinGecko(token.symbol);
+    if (coingeckoPrice > 0) {
+      return { address: addressLower, price: coingeckoPrice };
+    }
+    
+    return { address: addressLower, price: 0 };
   });
   
   const results = await Promise.all(pricePromises);
