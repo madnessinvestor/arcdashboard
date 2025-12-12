@@ -25,6 +25,8 @@ interface DetectedApproval {
   spenderAddress: string;
   allowance?: string;
   valueAtRisk?: number;
+  balance?: string;
+  isUnlimited?: boolean;
 }
 
 const ERC20_ABI = [
@@ -159,7 +161,9 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                   const allowanceFormatted = parseFloat(formatUnits(allowance, decimals));
                   const tokenPrice = getTokenPrice(token.symbol || '???');
                   const valueAtRisk = allowanceFormatted * tokenPrice;
-                  const displayValue = valueAtRisk > 1e12 ? Infinity : valueAtRisk;
+                  // Consider unlimited if value exceeds 1 trillion or max uint256 threshold
+                  const isUnlimited = valueAtRisk > 1e12 || allowanceFormatted > 1e15;
+                  const displayValue = isUnlimited ? Infinity : valueAtRisk;
                   
                   found.push({
                     id: `${token.contractAddress}-${spender}`,
@@ -168,7 +172,9 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                     tokenSymbol: token.symbol || '???',
                     spenderAddress: spender,
                     allowance: formatUnits(allowance, decimals),
-                    valueAtRisk: displayValue
+                    valueAtRisk: displayValue,
+                    balance: token.balance || '0',
+                    isUnlimited
                   });
                 }
               } catch (e) {
@@ -330,6 +336,23 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
     return formatValueAtRisk(total);
   };
 
+  const getUnlimitedCount = () => {
+    return detectedApprovals.filter(a => a.isUnlimited).length;
+  };
+
+  const formatAllowance = (allowance: string | undefined, isUnlimited: boolean | undefined) => {
+    if (isUnlimited) return 'Unlimited';
+    if (!allowance) return '-';
+    const num = parseFloat(allowance);
+    if (num === 0) return '0';
+    if (num < 0.0001) return '<0.0001';
+    if (num < 1) return num.toFixed(4);
+    if (num < 1000) return num.toFixed(2);
+    if (num < 1000000) return `${(num / 1000).toFixed(2)}K`;
+    if (num < 1000000000) return `${(num / 1000000).toFixed(2)}M`;
+    return `${(num / 1000000000).toFixed(2)}B`;
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
@@ -386,6 +409,14 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
               <div>
                 <span className="text-xs font-mono uppercase text-muted-foreground">Total Value at Risk</span>
                 <p className="text-xl font-display font-bold text-red-400" data-testid="text-total-risk">{getTotalValueAtRisk()}</p>
+                {getUnlimitedCount() > 0 && (
+                  <div className="flex items-center gap-1.5 mt-1" data-testid="warning-unlimited">
+                    <AlertTriangle className="h-3 w-3 text-orange-500 animate-pulse" />
+                    <span className="text-[10px] font-mono text-orange-400 uppercase tracking-wide">
+                      {getUnlimitedCount()} unlimited approval{getUnlimitedCount() > 1 ? 's' : ''} - High Risk
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
             {selectedIds.size > 0 && (
@@ -431,8 +462,9 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                     />
                   </TableHead>
                   <TableHead className="text-muted-foreground font-mono uppercase text-xs">Token</TableHead>
+                  <TableHead className="text-muted-foreground font-mono uppercase text-xs">Your Balance</TableHead>
+                  <TableHead className="text-muted-foreground font-mono uppercase text-xs">Approved</TableHead>
                   <TableHead className="text-muted-foreground font-mono uppercase text-xs">Spender</TableHead>
-                  <TableHead className="text-muted-foreground font-mono uppercase text-xs">Value at Risk</TableHead>
                   <TableHead className="w-[100px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -453,7 +485,7 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20">
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center border ${approval.isUnlimited ? 'bg-orange-500/20 text-orange-500 border-orange-500/30' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
                           <AlertTriangle size={14} />
                         </div>
                         <div>
@@ -463,12 +495,26 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm font-mono text-white">{formatAddress(approval.spenderAddress)}</span>
+                      <span className="text-sm font-mono text-primary font-bold" data-testid={`text-balance-${approval.id}`}>
+                        {formatBalance(approval.balance || '0')}
+                      </span>
                     </TableCell>
                     <TableCell>
-                      <span className={`text-sm font-bold ${approval.valueAtRisk && isFinite(approval.valueAtRisk) && approval.valueAtRisk > 100 ? 'text-red-400' : 'text-orange-400'}`} data-testid={`text-risk-${approval.id}`}>
-                        {formatValueAtRisk(approval.valueAtRisk)}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {approval.isUnlimited ? (
+                          <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-orange-500/20 border border-orange-500/30" data-testid={`badge-unlimited-${approval.id}`}>
+                            <AlertTriangle className="h-3 w-3 text-orange-500 animate-pulse" />
+                            <span className="text-xs font-bold text-orange-400 uppercase">Unlimited</span>
+                          </div>
+                        ) : (
+                          <span className="text-sm font-mono text-white" data-testid={`text-approved-${approval.id}`}>
+                            {formatAllowance(approval.allowance, approval.isUnlimited)}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm font-mono text-white">{formatAddress(approval.spenderAddress)}</span>
                     </TableCell>
                     <TableCell>
                       <Button 
