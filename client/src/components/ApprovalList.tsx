@@ -3,7 +3,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ShieldAlert, Loader2, RefreshCw, ShieldOff, AlertTriangle, Coins, DollarSign } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits } from "ethers";
 import { switchNetwork, ARC_TESTNET } from "@/lib/arc-network";
@@ -66,6 +66,12 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchRevoking, setIsBatchRevoking] = useState(false);
   const { toast } = useToast();
+  
+  // Ref to store previous tokens for fallback on errors
+  const tokensRef = useRef<Token[]>([]);
+  useEffect(() => {
+    tokensRef.current = tokens;
+  }, [tokens]);
 
   const fetchTokens = useCallback(async () => {
     if (!account) return;
@@ -94,18 +100,19 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
               };
             } catch (e) {
               console.error('Failed to fetch balance for', token.symbol, e);
-              return { ...token, balance: '0', decimals: 18 };
+              // Preserve previous balance if available
+              const existingToken = tokensRef.current.find(t => t.contractAddress === token.contractAddress);
+              return { ...token, balance: existingToken?.balance || '0', decimals: existingToken?.decimals || 18 };
             }
           })
         );
         setTokens(tokensWithBalances);
         scanForApprovals(tokensWithBalances);
-      } else {
-        setTokens([]);
       }
+      // Don't clear tokens if the API returns no result - keep previous data
     } catch (error) {
       console.error("Failed to fetch tokens", error);
-      setTokens([]);
+      // Don't clear tokens on error - preserve previous data
     } finally {
       setIsLoading(false);
     }
@@ -114,10 +121,10 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
   useEffect(() => {
     if (account) {
       fetchTokens();
-      // Set up polling for real-time updates every 30 seconds
+      // Set up polling for real-time updates every 2 minutes to avoid congestion
       const interval = setInterval(() => {
         fetchTokens();
-      }, 30000);
+      }, 120000);
       return () => clearInterval(interval);
     } else {
       setTokens([]);
@@ -194,6 +201,8 @@ export function ApprovalList({ account, onStatsUpdate, wrongNetwork }: { account
         }
       }
 
+      // Sort by approval timestamp - most recent first
+      found.sort((a, b) => (b.approvalTimestamp || 0) - (a.approvalTimestamp || 0));
       setDetectedApprovals(found);
       
       if (found.length > 0) {

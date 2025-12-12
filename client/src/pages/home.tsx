@@ -35,8 +35,8 @@ export default function Home() {
   // Fetch stats from the server
   const { data: stats, refetch: refetchStats } = useQuery<{ totalRevokes: number; totalValueSecured: string }>({
     queryKey: ['/api/stats'],
-    refetchInterval: 10000, // Refresh every 10 seconds
-    staleTime: 0, // Always consider data stale for fresh fetches
+    refetchInterval: 120000, // Refresh every 2 minutes to avoid congestion
+    staleTime: 60000, // Consider data fresh for 1 minute
   });
 
   const handleStatsUpdate = useCallback(() => {
