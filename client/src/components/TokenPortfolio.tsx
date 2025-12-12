@@ -35,14 +35,21 @@ const ERC20_ABI = [
   "function balanceOf(address account) view returns (uint256)"
 ];
 
-const UNISWAP_V2_PAIR_ABI = [
-  "function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
-  "function token0() view returns (address)",
-  "function token1() view returns (address)"
+const POOL_PAIR_ABI = [
+  "function getReserves() view returns (uint256, uint256)",
+  "function tokenA() view returns (address)",
+  "function tokenB() view returns (address)"
+];
+
+const POOL_FACTORY_ABI = [
+  "function getPool(address tokenA, address tokenB) view returns (address)",
+  "function allPools(uint256) view returns (address)",
+  "function allPoolsLength() view returns (uint256)"
 ];
 
 const USDC_ADDRESS = "0x3600000000000000000000000000000000000000".toLowerCase();
 const EURC_ADDRESS = "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a".toLowerCase();
+const POOL_FACTORY_ADDRESS = "0x34A0b64a88BBd4Bf6Acba8a0Ff8F27c8aDD67E9C";
 
 const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'UST', 'FRAX', 'TUSD', 'GUSD', 'USDP', 'SUSD'];
 
@@ -120,12 +127,62 @@ async function fetchPriceFromCoinGecko(symbol: string): Promise<number> {
   }
 }
 
+async function fetchPriceFromPool(tokenAddress: string, tokenDecimals: number = 18): Promise<number> {
+  const cacheKey = `pool_${tokenAddress.toLowerCase()}`;
+  const cached = priceCache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.price;
+  }
+
+  try {
+    const provider = new JsonRpcProvider(ARC_TESTNET.rpcUrls[0]);
+    const factory = new Contract(POOL_FACTORY_ADDRESS, POOL_FACTORY_ABI, provider);
+    
+    const poolAddress = await factory.getPool(tokenAddress, USDC_ADDRESS);
+    
+    if (!poolAddress || poolAddress === '0x0000000000000000000000000000000000000000') {
+      console.log(`No pool found for ${tokenAddress} with USDC`);
+      return 0;
+    }
+
+    const pairContract = new Contract(poolAddress, POOL_PAIR_ABI, provider);
+    
+    const [reserves, tokenAAddress] = await Promise.all([
+      pairContract.getReserves(),
+      pairContract.tokenA()
+    ]);
+
+    const reserve0 = reserves[0];
+    const reserve1 = reserves[1];
+    
+    const isTokenA = tokenAAddress.toLowerCase() === tokenAddress.toLowerCase();
+    
+    const tokenReserve = isTokenA ? reserve0 : reserve1;
+    const usdcReserve = isTokenA ? reserve1 : reserve0;
+    
+    const tokenReserveFormatted = parseFloat(formatUnits(tokenReserve, tokenDecimals));
+    const usdcReserveFormatted = parseFloat(formatUnits(usdcReserve, 6));
+    
+    if (tokenReserveFormatted === 0) return 0;
+    
+    const price = usdcReserveFormatted / tokenReserveFormatted;
+    
+    priceCache[cacheKey] = { price, timestamp: Date.now() };
+    console.log(`Pool price for ${tokenAddress}: $${price.toFixed(6)}`);
+    return price;
+  } catch (error) {
+    console.error('Pool price fetch error:', error);
+    return 0;
+  }
+}
+
 async function fetchTokenPrices(tokens: Token[]): Promise<Map<string, number>> {
   const priceMap = new Map<string, number>();
   
   const pricePromises = tokens.map(async (token) => {
     const upperSymbol = token.symbol?.toUpperCase() || '';
     const addressLower = token.contractAddress.toLowerCase();
+    const decimals = token.decimals || 18;
     
     if (upperSymbol === 'USDC' || addressLower === USDC_ADDRESS) {
       return { address: addressLower, price: 1.0 };
@@ -138,6 +195,11 @@ async function fetchTokenPrices(tokens: Token[]): Promise<Map<string, number>> {
     const coingeckoPrice = await fetchPriceFromCoinGecko(token.symbol);
     if (coingeckoPrice > 0) {
       return { address: addressLower, price: coingeckoPrice };
+    }
+    
+    const poolPrice = await fetchPriceFromPool(token.contractAddress, decimals);
+    if (poolPrice > 0) {
+      return { address: addressLower, price: poolPrice };
     }
     
     return { address: addressLower, price: 0 };
