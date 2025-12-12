@@ -340,6 +340,78 @@ export default function Home() {
               </a>
             </div>
             
+            <div className="flex flex-col items-center gap-3 pt-4 border-t border-white/5">
+              <span className="text-xs font-mono uppercase text-muted-foreground tracking-wider">Other dApps</span>
+              <div className="flex items-center gap-4">
+                <a 
+                  href="https://arcminer.up.railway.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="h-10 w-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/20 transition-all"
+                  data-testid="link-arcminer"
+                  title="ArcMiner"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                  </svg>
+                </a>
+                <a 
+                  href="https://arcrevoke.up.railway.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="h-10 w-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/20 transition-all"
+                  data-testid="link-arcrevoke"
+                  title="ArcRevoke"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    <path d="M9 12l2 2 4-4"/>
+                  </svg>
+                </a>
+                <a 
+                  href="https://gojoswap.up.railway.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="h-10 w-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/20 transition-all"
+                  data-testid="link-gojoswap"
+                  title="GojoSwap"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 3h5v5"/>
+                    <path d="M8 21H3v-5"/>
+                    <path d="M21 3l-9 9"/>
+                    <path d="M3 21l9-9"/>
+                  </svg>
+                </a>
+                <a 
+                  href="https://messagearc-onchain.up.railway.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="h-10 w-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/20 transition-all"
+                  data-testid="link-messagearc"
+                  title="MessageArc"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                </a>
+                <a 
+                  href="https://mintsbtarc-onchain.up.railway.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="h-10 w-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/20 transition-all"
+                  data-testid="link-mintsbt"
+                  title="MintSBT"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <path d="M21 15l-5-5L5 21"/>
+                  </svg>
+                </a>
+              </div>
+            </div>
+            
             <p className="text-muted-foreground text-sm font-mono text-center">
               2025 ArcDashboard - Built on Arc Network. All rights reserved.
             </p>
