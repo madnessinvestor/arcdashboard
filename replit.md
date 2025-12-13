@@ -100,3 +100,8 @@ Preferred communication style: Simple, everyday language.
   - Refresh button disabled with loading spinner during data fetch
   - Delta tracking between refreshes (absolute + percentage change) with visual cues (green up arrow / red down arrow)
   - Price transparency: each token shows price source (Fixed price, On-chain, Oracle) with timestamp
+  - Request queue system to prevent simultaneous API calls (fixes price variation display bugs)
+  - **Wallet History Chart**: Visual graph showing portfolio value over time with 24h, 1W, 1M time range toggles
+    - Shows percentage and absolute value changes
+    - LocalStorage persistence for historical data
+    - Similar to DeBank's net worth chart
