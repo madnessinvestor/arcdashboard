@@ -19,6 +19,8 @@ import zkcodexLogo from "@assets/ZKCODEX_1765571844410.png";
 import atclLogo from "@assets/ATCL_1765574269315.png";
 import axoLogo from "@assets/AXO_1765574269315.png";
 
+type PriceSource = 'fixed' | 'on-chain' | 'oracle' | 'unknown';
+
 interface Token {
   contractAddress: string;
   name: string;
@@ -28,6 +30,25 @@ interface Token {
   price?: number;
   value?: number;
   logoUrl?: string;
+  priceSource?: PriceSource;
+  priceTimestamp?: number;
+}
+
+interface PortfolioSnapshot {
+  tokens: Token[];
+  totalValue: number;
+  timestamp: number;
+}
+
+interface TokenDelta {
+  absoluteDelta: number;
+  percentageDelta: number;
+}
+
+interface PriceInfo {
+  price: number;
+  source: PriceSource;
+  timestamp: number;
 }
 
 const ERC20_ABI = [
@@ -209,9 +230,10 @@ async function fetchPriceFromPool(tokenAddress: string): Promise<number> {
 async function fetchTokenPrices(
   tokens: Token[],
   onProgress?: (current: number, total: number, tokenSymbol: string) => void
-): Promise<Map<string, number>> {
-  const priceMap = new Map<string, number>();
+): Promise<Map<string, PriceInfo>> {
+  const priceMap = new Map<string, PriceInfo>();
   const total = tokens.length;
+  const now = Date.now();
   
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -221,27 +243,27 @@ async function fetchTokenPrices(
     onProgress?.(i + 1, total, token.symbol || 'Unknown');
     
     if (upperSymbol === 'USDC' || addressLower === USDC_ADDRESS) {
-      priceMap.set(addressLower, 1.0);
+      priceMap.set(addressLower, { price: 1.0, source: 'fixed', timestamp: now });
       continue;
     }
     
     if (STABLECOIN_SYMBOLS.includes(upperSymbol) && upperSymbol !== 'EURC') {
-      priceMap.set(addressLower, 1.0);
+      priceMap.set(addressLower, { price: 1.0, source: 'fixed', timestamp: now });
       continue;
     }
     
     const coingeckoPrice = await fetchWithRetry(() => fetchPriceFromCoinGecko(token.symbol));
     if (coingeckoPrice && coingeckoPrice > 0) {
-      priceMap.set(addressLower, coingeckoPrice);
+      priceMap.set(addressLower, { price: coingeckoPrice, source: 'oracle', timestamp: now });
       await delay(REQUEST_DELAY);
       continue;
     }
     
     const poolPrice = await fetchWithRetry(() => fetchPriceFromPool(token.contractAddress));
     if (poolPrice && poolPrice > 0) {
-      priceMap.set(addressLower, poolPrice);
+      priceMap.set(addressLower, { price: poolPrice, source: 'on-chain', timestamp: now });
     } else {
-      priceMap.set(addressLower, 0);
+      priceMap.set(addressLower, { price: 0, source: 'unknown', timestamp: now });
     }
     
     await delay(REQUEST_DELAY);
@@ -262,12 +284,78 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
   const [loadingProgress, setLoadingProgress] = useState<{ phase: string; current: number; total: number; detail?: string }>({ phase: '', current: 0, total: 0 });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [previousSnapshot, setPreviousSnapshot] = useState<PortfolioSnapshot | null>(null);
   const { toast } = useToast();
   
   const tokensRef = useRef<Token[]>([]);
   useEffect(() => {
     tokensRef.current = tokens;
   }, [tokens]);
+
+  const formatTimestamp = (date: Date): string => {
+    return date.toLocaleTimeString('en-US', { 
+      hour12: false, 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit',
+      timeZone: 'UTC'
+    }) + ' (UTC)';
+  };
+
+  const calculateTokenDelta = (currentValue: number, tokenAddress: string): TokenDelta | null => {
+    if (!previousSnapshot) return null;
+    const prevToken = previousSnapshot.tokens.find(
+      t => t.contractAddress.toLowerCase() === tokenAddress.toLowerCase()
+    );
+    if (!prevToken || prevToken.value === undefined) return null;
+    
+    const absoluteDelta = currentValue - (prevToken.value || 0);
+    const percentageDelta = prevToken.value && prevToken.value > 0 
+      ? ((currentValue - prevToken.value) / prevToken.value) * 100 
+      : 0;
+    
+    return { absoluteDelta, percentageDelta };
+  };
+
+  const calculateTotalDelta = (): TokenDelta | null => {
+    if (!previousSnapshot) return null;
+    const currentTotal = tokens.reduce((sum, t) => sum + (t.value || 0), 0);
+    const prevTotal = previousSnapshot.totalValue;
+    
+    if (prevTotal === 0 && currentTotal === 0) return null;
+    
+    const absoluteDelta = currentTotal - prevTotal;
+    const percentageDelta = prevTotal > 0 
+      ? ((currentTotal - prevTotal) / prevTotal) * 100 
+      : 0;
+    
+    return { absoluteDelta, percentageDelta };
+  };
+
+  const formatDelta = (delta: TokenDelta | null, symbol: string = 'USDC'): string => {
+    if (!delta) return '';
+    if (Math.abs(delta.absoluteDelta) < 0.01 && Math.abs(delta.percentageDelta) < 0.01) return 'No change';
+    
+    const sign = delta.absoluteDelta >= 0 ? '+' : '';
+    const absFormatted = Math.abs(delta.absoluteDelta) < 0.01 
+      ? '<0.01' 
+      : delta.absoluteDelta.toFixed(2);
+    const pctFormatted = Math.abs(delta.percentageDelta) < 0.01 
+      ? '<0.01' 
+      : Math.abs(delta.percentageDelta).toFixed(2);
+    
+    return `${sign}${absFormatted} ${symbol} (${sign}${pctFormatted}%)`;
+  };
+
+  const getPriceSourceLabel = (source: PriceSource | undefined): string => {
+    switch (source) {
+      case 'fixed': return 'Fixed price';
+      case 'on-chain': return 'On-chain';
+      case 'oracle': return 'Oracle';
+      default: return 'Unknown';
+    }
+  };
 
   const walletToDisplay = searchedWallet || account;
 
@@ -352,15 +440,33 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         });
         
         const tokensWithPrices = tokensWithBalances.map(token => {
-          const price = priceMap.get(token.contractAddress.toLowerCase()) || 0;
+          const priceInfo = priceMap.get(token.contractAddress.toLowerCase());
+          const price = priceInfo?.price || 0;
           const value = parseFloat(token.balance || '0') * price;
-          return { ...token, price, value };
+          return { 
+            ...token, 
+            price, 
+            value,
+            priceSource: priceInfo?.source,
+            priceTimestamp: priceInfo?.timestamp
+          };
         });
         
         const sortedTokens = tokensWithPrices.sort((a, b) => (b.value || 0) - (a.value || 0));
+        
+        if (tokensRef.current.length > 0) {
+          setPreviousSnapshot({
+            tokens: [...tokensRef.current],
+            totalValue: tokensRef.current.reduce((sum, t) => sum + (t.value || 0), 0),
+            timestamp: Date.now()
+          });
+        }
+        
         setTokens(sortedTokens);
+        setLastUpdatedAt(new Date());
       } else {
         setTokens([]);
+        setLastUpdatedAt(new Date());
       }
     } catch (error) {
       console.error("Failed to fetch tokens", error);
@@ -505,9 +611,27 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
             </span>
           </div>
         </div>
-        <Button variant="ghost" onClick={fetchTokens} className="text-muted-foreground hover:text-primary gap-2" data-testid="button-refresh">
-          <RefreshCw size={14} /> Refresh
-        </Button>
+        <div className="flex items-center gap-3">
+          {lastUpdatedAt && (
+            <span className="text-xs font-mono text-muted-foreground" data-testid="text-last-updated">
+              Last updated at {formatTimestamp(lastUpdatedAt)}
+            </span>
+          )}
+          <Button 
+            variant="ghost" 
+            onClick={fetchTokens} 
+            disabled={isLoading}
+            className="text-muted-foreground hover:text-primary gap-2" 
+            data-testid="button-refresh"
+          >
+            {isLoading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} />
+            )}
+            {isLoading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        </div>
       </div>
 
       <div className="glass-panel p-4 rounded-lg flex items-center justify-between flex-wrap gap-4">
@@ -517,7 +641,28 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
           </div>
           <div>
             <span className="text-xs font-mono uppercase text-muted-foreground">Total Portfolio Value</span>
-            <p className="text-2xl font-display font-bold text-primary" data-testid="text-total-value">{formatValue(getTotalValue())}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-2xl font-display font-bold text-primary" data-testid="text-total-value">{formatValue(getTotalValue())}</p>
+              {(() => {
+                const delta = calculateTotalDelta();
+                if (!delta) return null;
+                const isPositive = delta.absoluteDelta > 0;
+                const isNegative = delta.absoluteDelta < 0;
+                const isNoChange = Math.abs(delta.absoluteDelta) < 0.01;
+                return (
+                  <span 
+                    className={`text-xs font-mono ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground'}`}
+                    data-testid="text-total-delta"
+                  >
+                    {isNoChange ? 'No change' : (
+                      <>
+                        {isPositive ? '\u2191' : '\u2193'} {formatDelta(delta)}
+                      </>
+                    )}
+                  </span>
+                );
+              })()}
+            </div>
           </div>
         </div>
         <div className="text-right">
@@ -585,9 +730,17 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
-                      {formatPrice(token.price || 0)}
-                    </span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
+                        {token.symbol?.toUpperCase() === 'USDC' ? '1.00 (fixed)' : formatPrice(token.price || 0)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/70" data-testid={`text-price-source-${token.contractAddress}`}>
+                        {getPriceSourceLabel(token.priceSource)}
+                        {token.priceTimestamp && (
+                          <> @ {new Date(token.priceTimestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}</>
+                        )}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <span className="text-sm font-mono text-white" data-testid={`text-balance-${token.contractAddress}`}>
@@ -595,9 +748,30 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className="text-sm font-mono font-bold text-primary" data-testid={`text-value-${token.contractAddress}`}>
-                      {formatValue(token.value)}
-                    </span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-sm font-mono font-bold text-primary" data-testid={`text-value-${token.contractAddress}`}>
+                        {formatValue(token.value)}
+                      </span>
+                      {(() => {
+                        const delta = calculateTokenDelta(token.value || 0, token.contractAddress);
+                        if (!delta) return null;
+                        const isPositive = delta.absoluteDelta > 0;
+                        const isNegative = delta.absoluteDelta < 0;
+                        const isNoChange = Math.abs(delta.absoluteDelta) < 0.01;
+                        return (
+                          <span 
+                            className={`text-[10px] font-mono ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground/70'}`}
+                            data-testid={`text-delta-${token.contractAddress}`}
+                          >
+                            {isNoChange ? '\u2014' : (
+                              <>
+                                {isPositive ? '\u2191' : '\u2193'} {Math.abs(delta.absoluteDelta) < 0.01 ? '<0.01' : delta.absoluteDelta.toFixed(2)} ({delta.percentageDelta >= 0 ? '+' : ''}{Math.abs(delta.percentageDelta) < 0.01 ? '<0.01' : delta.percentageDelta.toFixed(1)}%)
+                              </>
+                            )}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
