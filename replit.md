@@ -95,3 +95,8 @@ Preferred communication style: Simple, everyday language.
 - Added wallet search functionality
 - Updated UI to DeBank-style dashboard layout
 - Added Portfolio tab for connected wallet view
+- **UX Improvements (Dec 13, 2025)**:
+  - Last update indicator showing "Last updated at HH:MM:SS (UTC)" after each refresh
+  - Refresh button disabled with loading spinner during data fetch
+  - Delta tracking between refreshes (absolute + percentage change) with visual cues (green up arrow / red down arrow)
+  - Price transparency: each token shows price source (Fixed price, On-chain, Oracle) with timestamp
