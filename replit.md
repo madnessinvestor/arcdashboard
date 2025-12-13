@@ -111,3 +111,13 @@ Preferred communication style: Simple, everyday language.
     - Real chart data: Portfolio chart now displays actual historical snapshots instead of mock data
     - History stored in localStorage: `portfolio_history_{wallet}` and `token_price_history_{wallet}`
     - Charts build up real data over time as user refreshes the page
+  - **Chart & Price Oscillation Improvements (Dec 13, 2025)**:
+    - **Time-based chart intervals**: Chart now properly shows data at correct intervals per time range:
+      - 24h view: data points every 5 minutes (max 288 points)
+      - 1W view: data points every hour (max 168 points)
+      - 1M view: data points every day (max 30 points)
+    - **Price interpolation**: Chart uses linear interpolation between data points for smooth visualization
+    - **Price oscillation display**: Each token now shows price change (not just value change) below the price column
+      - Shows absolute change in USDC and percentage change
+      - Green for positive, red for negative changes
+      - Compares current price to 24h ago price from localStorage history
