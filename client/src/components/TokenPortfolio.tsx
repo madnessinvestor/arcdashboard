@@ -130,6 +130,7 @@ const REQUEST_DELAY = 50;
 const MAX_RETRIES = 2;
 const INITIAL_DELAY = 30;
 const BALANCE_DELAY = 30;
+const PRICE_DELAY = 200;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -551,13 +552,20 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
 
   const walletToDisplay = searchedWallet || account;
 
-  const fetchTokens = useCallback(async () => {
+  const fetchTokens = useCallback(async (nftAddresses?: Set<string>) => {
     if (!walletToDisplay) return;
     setIsLoading(true);
     setError(null);
-    setLoadingProgress({ phase: 'Fetching token list...', current: 0, total: 0 });
+    setLoadingProgress({ phase: 'Fetching NFTs...', current: 0, total: 0 });
     
     try {
+      let currentNftAddresses = nftAddresses;
+      if (!currentNftAddresses) {
+        currentNftAddresses = await fetchNFTs();
+      }
+      
+      setLoadingProgress({ phase: 'Fetching token list...', current: 0, total: 0 });
+      
       const response = await fetch(
         `https://testnet.arcscan.app/api?module=account&action=tokenlist&address=${walletToDisplay}`
       );
@@ -629,14 +637,56 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
           await delay(REQUEST_DELAY);
         }
         
-        setLoadingProgress({ phase: 'Loading prices', current: 0, total: totalTokens });
+        const regularTokens = tokensWithBalances.filter(t => 
+          !currentNftAddresses?.has(t.contractAddress.toLowerCase())
+        );
         
-        const priceMap = await fetchTokenPrices(tokensWithBalances, (current, total, tokenSymbol) => {
-          setLoadingProgress({ phase: 'Loading prices', current, total, detail: tokenSymbol });
-        });
+        setLoadingProgress({ phase: 'Loading prices', current: 0, total: regularTokens.length });
+        
+        const priceMap = new Map<string, PriceInfo>();
+        const now = Date.now();
+        
+        for (let i = 0; i < regularTokens.length; i++) {
+          const token = regularTokens[i];
+          const upperSymbol = token.symbol?.toUpperCase() || '';
+          const addressLower = token.contractAddress.toLowerCase();
+          
+          setLoadingProgress({ phase: 'Loading prices', current: i + 1, total: regularTokens.length, detail: token.symbol || 'Unknown' });
+          
+          if (i > 0) {
+            await delay(PRICE_DELAY);
+          }
+          
+          if (upperSymbol === 'USDC' || addressLower === USDC_ADDRESS) {
+            priceMap.set(addressLower, { price: 1.0, source: 'fixed', timestamp: now });
+            continue;
+          }
+          
+          if (STABLECOIN_SYMBOLS.includes(upperSymbol) && upperSymbol !== 'EURC') {
+            priceMap.set(addressLower, { price: 1.0, source: 'fixed', timestamp: now });
+            continue;
+          }
+          
+          const coingeckoPrice = await fetchWithRetry(() => fetchPriceFromCoinGecko(token.symbol));
+          if (coingeckoPrice && coingeckoPrice > 0) {
+            priceMap.set(addressLower, { price: coingeckoPrice, source: 'oracle', timestamp: now });
+            continue;
+          }
+          
+          const poolPrice = await fetchWithRetry(() => fetchPriceFromPool(token.contractAddress));
+          if (poolPrice && poolPrice > 0) {
+            priceMap.set(addressLower, { price: poolPrice, source: 'on-chain', timestamp: now });
+          } else {
+            priceMap.set(addressLower, { price: 0, source: 'unknown', timestamp: now });
+          }
+        }
         
         const tokensWithPrices = tokensWithBalances.map(token => {
-          const priceInfo = priceMap.get(token.contractAddress.toLowerCase());
+          const addressLower = token.contractAddress.toLowerCase();
+          if (currentNftAddresses?.has(addressLower)) {
+            return { ...token, price: 0, value: 0, priceSource: 'unknown' as PriceSource, priceTimestamp: now };
+          }
+          const priceInfo = priceMap.get(addressLower);
           const price = priceInfo?.price || 0;
           const value = parseFloat(token.balance || '0') * price;
           return { 
@@ -658,9 +708,9 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
           });
         }
         
-        const now = Date.now();
         const priceHistory = loadPriceHistory(walletToDisplay);
-        for (const token of sortedTokens) {
+        const nonNftTokens = sortedTokens.filter(t => !currentNftAddresses?.has(t.contractAddress.toLowerCase()));
+        for (const token of nonNftTokens) {
           const addr = token.contractAddress.toLowerCase();
           if (!priceHistory[addr]) {
             priceHistory[addr] = [];
@@ -674,11 +724,11 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         savePriceHistory(walletToDisplay, priceHistory);
         
         const portfolioHistory = loadPortfolioHistory(walletToDisplay);
-        const totalValue = sortedTokens.reduce((sum, t) => sum + (t.value || 0), 0);
+        const totalValue = nonNftTokens.reduce((sum, t) => sum + (t.value || 0), 0);
         portfolioHistory.push({
           totalValue,
           timestamp: now,
-          tokens: sortedTokens.map(t => ({
+          tokens: nonNftTokens.map(t => ({
             address: t.contractAddress.toLowerCase(),
             value: t.value || 0,
             price: t.price || 0
@@ -741,14 +791,15 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
             const existing = nftMap.get(key)!;
             existing.quantity += 1;
           } else {
+            const metadataImage = item.metadata?.image || item.image_url || '';
             const tokenLogo = item.token?.address ? getTokenLogoUrl(item.token.address, item.token?.symbol || '') : '';
             nftMap.set(key, {
               tokenId: item.id || '0',
               contractAddress: item.token?.address || '',
               name: item.token?.name || 'Unknown NFT',
               symbol: item.token?.symbol || 'NFT',
-              tokenUri: item.metadata?.image || item.image_url || '',
-              imageUrl: tokenLogo || item.metadata?.image || item.image_url || '',
+              tokenUri: metadataImage,
+              imageUrl: metadataImage || tokenLogo,
               quantity: 1
             });
           }
@@ -770,13 +821,6 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
     }
   }, [walletToDisplay]);
 
-  useEffect(() => {
-    if (walletToDisplay) {
-      fetchNFTs();
-    } else {
-      setNfts([]);
-    }
-  }, [walletToDisplay, fetchNFTs]);
 
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   
@@ -854,7 +898,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         </div>
         <h3 className="text-2xl font-display font-bold text-white">Error Loading Tokens</h3>
         <p className="text-muted-foreground max-w-md">{error}</p>
-        <Button onClick={fetchTokens} className="bg-primary text-black font-bold" data-testid="button-retry">
+        <Button onClick={() => fetchTokens()} className="bg-primary text-black font-bold" data-testid="button-retry">
           Try Again
         </Button>
       </div>
@@ -911,7 +955,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
           )}
           <Button 
             variant="ghost" 
-            onClick={fetchTokens} 
+            onClick={() => fetchTokens()} 
             disabled={isLoading}
             className="text-muted-foreground hover:text-primary gap-2" 
             data-testid="button-refresh"
