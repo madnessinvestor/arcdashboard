@@ -975,13 +975,15 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                             const absValue = Math.abs(priceOsc.absoluteDelta);
                             const pctValue = Math.abs(priceOsc.percentageDelta);
                             if (absValue < 0.0001 && pctValue < 0.01) return null;
+                            const sign = isPositive ? '+' : isNegative ? '-' : '';
+                            const pctFormatted = pctValue < 0.01 ? '0.00' : pctValue.toFixed(2);
+                            const absFormatted = absValue < 0.0001 ? '<0.0001' : absValue < 0.01 ? absValue.toFixed(4) : absValue.toFixed(2);
                             return (
                               <span 
                                 className={`text-[10px] font-mono ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground/70'}`}
                                 data-testid={`text-price-change-${token.contractAddress}`}
                               >
-                                {isPositive ? '+' : isNegative ? '-' : ''}
-                                {absValue < 0.0001 ? '<0.0001' : absValue < 0.01 ? absValue.toFixed(4) : absValue.toFixed(2)} USDC ({isPositive ? '+' : isNegative ? '-' : ''}{pctValue < 0.01 ? '0.00' : pctValue.toFixed(2)}%)
+                                {sign}{pctFormatted}% (${absFormatted})
                               </span>
                             );
                           })()}
