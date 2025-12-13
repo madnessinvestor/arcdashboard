@@ -114,11 +114,105 @@ interface PriceCache {
 
 const priceCache: PriceCache = {};
 const CACHE_DURATION = 30000;
-const REQUEST_DELAY = 500;
-const MAX_RETRIES = 3;
+const REQUEST_DELAY = 200;
+const MAX_RETRIES = 2;
 const INITIAL_DELAY = 100;
+const BALANCE_DELAY = 120;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const PRICE_HISTORY_KEY_PREFIX = "token_price_history_";
+const PORTFOLIO_HISTORY_KEY = "portfolio_history_";
+
+interface PriceHistoryEntry {
+  price: number;
+  value: number;
+  timestamp: number;
+}
+
+interface TokenPriceHistory {
+  [tokenAddress: string]: PriceHistoryEntry[];
+}
+
+interface PortfolioHistoryEntry {
+  totalValue: number;
+  timestamp: number;
+  tokens: { address: string; value: number; price: number }[];
+}
+
+function getPriceHistoryKey(walletAddress: string): string {
+  return `${PRICE_HISTORY_KEY_PREFIX}${walletAddress.toLowerCase()}`;
+}
+
+function getPortfolioHistoryKey(walletAddress: string): string {
+  return `${PORTFOLIO_HISTORY_KEY}${walletAddress.toLowerCase()}`;
+}
+
+function loadPriceHistory(walletAddress: string): TokenPriceHistory {
+  try {
+    const stored = localStorage.getItem(getPriceHistoryKey(walletAddress));
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePriceHistory(walletAddress: string, history: TokenPriceHistory): void {
+  try {
+    const now = Date.now();
+    const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+    const filtered: TokenPriceHistory = {};
+    for (const [addr, entries] of Object.entries(history)) {
+      filtered[addr] = entries.filter(e => e.timestamp >= cutoff).slice(-100);
+    }
+    localStorage.setItem(getPriceHistoryKey(walletAddress), JSON.stringify(filtered));
+  } catch (e) {
+    console.error('Failed to save price history:', e);
+  }
+}
+
+function loadPortfolioHistory(walletAddress: string): PortfolioHistoryEntry[] {
+  try {
+    const stored = localStorage.getItem(getPortfolioHistoryKey(walletAddress));
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePortfolioHistory(walletAddress: string, history: PortfolioHistoryEntry[]): void {
+  try {
+    const now = Date.now();
+    const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+    const filtered = history.filter(e => e.timestamp >= cutoff).slice(-500);
+    localStorage.setItem(getPortfolioHistoryKey(walletAddress), JSON.stringify(filtered));
+  } catch (e) {
+    console.error('Failed to save portfolio history:', e);
+  }
+}
+
+function getTokenPriceChange(tokenAddress: string, currentValue: number, priceHistory: TokenPriceHistory, timeRangeHours: number = 24): { absoluteDelta: number; percentageDelta: number } | null {
+  const history = priceHistory[tokenAddress.toLowerCase()];
+  if (!history || history.length < 2) return null;
+  
+  const now = Date.now();
+  const cutoff = now - timeRangeHours * 60 * 60 * 1000;
+  const oldEntries = history.filter(e => e.timestamp <= cutoff);
+  
+  let oldValue: number;
+  if (oldEntries.length > 0) {
+    oldValue = oldEntries[oldEntries.length - 1].value;
+  } else {
+    oldValue = history[0].value;
+  }
+  
+  if (oldValue === 0 && currentValue === 0) return null;
+  
+  const absoluteDelta = currentValue - oldValue;
+  const percentageDelta = oldValue > 0 ? ((currentValue - oldValue) / oldValue) * 100 : (currentValue > 0 ? 100 : 0);
+  
+  return { absoluteDelta, percentageDelta };
+}
 
 class RequestQueue {
   private queue: (() => Promise<void>)[] = [];
@@ -362,31 +456,35 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
   };
 
   const calculateTokenDelta = (currentValue: number, tokenAddress: string): TokenDelta | null => {
-    if (!previousSnapshot) return null;
-    const prevToken = previousSnapshot.tokens.find(
-      t => t.contractAddress.toLowerCase() === tokenAddress.toLowerCase()
-    );
-    if (!prevToken || prevToken.value === undefined) return null;
-    
-    const absoluteDelta = currentValue - (prevToken.value || 0);
-    const percentageDelta = prevToken.value && prevToken.value > 0 
-      ? ((currentValue - prevToken.value) / prevToken.value) * 100 
-      : 0;
-    
-    return { absoluteDelta, percentageDelta };
+    if (!walletToDisplay) return null;
+    const priceHistory = loadPriceHistory(walletToDisplay);
+    const result = getTokenPriceChange(tokenAddress, currentValue, priceHistory, 24);
+    return result;
   };
 
   const calculateTotalDelta = (): TokenDelta | null => {
-    if (!previousSnapshot) return null;
+    if (!walletToDisplay) return null;
+    const portfolioHistory = loadPortfolioHistory(walletToDisplay);
+    if (portfolioHistory.length < 2) return null;
+    
     const currentTotal = tokens.reduce((sum, t) => sum + (t.value || 0), 0);
-    const prevTotal = previousSnapshot.totalValue;
+    const now = Date.now();
+    const cutoff = now - 24 * 60 * 60 * 1000;
+    const oldEntries = portfolioHistory.filter(e => e.timestamp <= cutoff);
     
-    if (prevTotal === 0 && currentTotal === 0) return null;
+    let oldTotal: number;
+    if (oldEntries.length > 0) {
+      oldTotal = oldEntries[oldEntries.length - 1].totalValue;
+    } else {
+      oldTotal = portfolioHistory[0].totalValue;
+    }
     
-    const absoluteDelta = currentTotal - prevTotal;
-    const percentageDelta = prevTotal > 0 
-      ? ((currentTotal - prevTotal) / prevTotal) * 100 
-      : 0;
+    if (oldTotal === 0 && currentTotal === 0) return null;
+    
+    const absoluteDelta = currentTotal - oldTotal;
+    const percentageDelta = oldTotal > 0 
+      ? ((currentTotal - oldTotal) / oldTotal) * 100 
+      : (currentTotal > 0 ? 100 : 0);
     
     return { absoluteDelta, percentageDelta };
   };
@@ -449,7 +547,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
           });
           
           if (i > 0) {
-            await delay(INITIAL_DELAY + (i * 50));
+            await delay(BALANCE_DELAY);
           }
           
           const result = await fetchWithRetry(async () => {
@@ -515,6 +613,34 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
             timestamp: Date.now()
           });
         }
+        
+        const now = Date.now();
+        const priceHistory = loadPriceHistory(walletToDisplay);
+        for (const token of sortedTokens) {
+          const addr = token.contractAddress.toLowerCase();
+          if (!priceHistory[addr]) {
+            priceHistory[addr] = [];
+          }
+          priceHistory[addr].push({
+            price: token.price || 0,
+            value: token.value || 0,
+            timestamp: now
+          });
+        }
+        savePriceHistory(walletToDisplay, priceHistory);
+        
+        const portfolioHistory = loadPortfolioHistory(walletToDisplay);
+        const totalValue = sortedTokens.reduce((sum, t) => sum + (t.value || 0), 0);
+        portfolioHistory.push({
+          totalValue,
+          timestamp: now,
+          tokens: sortedTokens.map(t => ({
+            address: t.contractAddress.toLowerCase(),
+            value: t.value || 0,
+            price: t.price || 0
+          }))
+        });
+        savePortfolioHistory(walletToDisplay, portfolioHistory);
         
         setTokens(sortedTokens);
         setLastUpdatedAt(new Date());

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
@@ -15,20 +15,28 @@ interface WalletHistoryChartProps {
 
 type TimeRange = "24h" | "1W" | "1M";
 
-const STORAGE_KEY_PREFIX = "wallet_history_";
+const PORTFOLIO_HISTORY_KEY = "portfolio_history_";
 
-interface StoredHistory {
-  data: HistoryDataPoint[];
-  lastUpdated: number;
+interface PortfolioHistoryEntry {
+  totalValue: number;
+  timestamp: number;
+  tokens: { address: string; value: number; price: number }[];
+}
+
+function loadPortfolioHistory(walletAddress: string): PortfolioHistoryEntry[] {
+  try {
+    const stored = localStorage.getItem(`${PORTFOLIO_HISTORY_KEY}${walletAddress.toLowerCase()}`);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
 }
 
 export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistoryChartProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
   const [historyData, setHistoryData] = useState<HistoryDataPoint[]>([]);
 
-  const getStorageKey = () => `${STORAGE_KEY_PREFIX}${walletAddress.toLowerCase()}`;
-
-  const formatDateForRange = (timestamp: number, range: TimeRange): string => {
+  const formatDateForRange = useCallback((timestamp: number, range: TimeRange): string => {
     const date = new Date(timestamp);
     if (range === "24h") {
       return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -37,121 +45,9 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
     } else {
       return date.toLocaleDateString([], { month: "short", day: "numeric" });
     }
-  };
+  }, []);
 
-  const generateHistoricalData = (currentVal: number, range: TimeRange): HistoryDataPoint[] => {
-    const now = Date.now();
-    const points: HistoryDataPoint[] = [];
-    
-    let intervalMs: number;
-    let numPoints: number;
-    
-    if (range === "24h") {
-      intervalMs = 60 * 60 * 1000;
-      numPoints = 24;
-    } else if (range === "1W") {
-      intervalMs = 6 * 60 * 60 * 1000;
-      numPoints = 28;
-    } else {
-      intervalMs = 24 * 60 * 60 * 1000;
-      numPoints = 30;
-    }
-    
-    const baseValue = currentVal;
-    const volatility = range === "24h" ? 0.02 : range === "1W" ? 0.05 : 0.1;
-    
-    let previousValue = baseValue * (1 - volatility * (Math.random() * 0.5 + 0.25));
-    
-    for (let i = numPoints - 1; i >= 0; i--) {
-      const timestamp = now - i * intervalMs;
-      
-      const progress = (numPoints - i) / numPoints;
-      const targetValue = previousValue + (baseValue - previousValue) * progress;
-      
-      const randomFactor = 1 + (Math.random() - 0.5) * volatility * 0.3;
-      const value = i === 0 ? currentVal : targetValue * randomFactor;
-      
-      previousValue = value;
-      
-      points.push({
-        timestamp,
-        value: Math.max(0, value),
-        formattedDate: formatDateForRange(timestamp, range),
-      });
-    }
-    
-    return points;
-  };
-
-  useEffect(() => {
-    if (!walletAddress || currentValue <= 0) {
-      setHistoryData([]);
-      return;
-    }
-
-    const storageKey = getStorageKey();
-    const stored = localStorage.getItem(storageKey);
-    
-    let storedHistory: StoredHistory | null = null;
-    if (stored) {
-      try {
-        storedHistory = JSON.parse(stored);
-      } catch {
-        storedHistory = null;
-      }
-    }
-
-    const now = Date.now();
-    const updateInterval = 5 * 60 * 1000;
-
-    if (storedHistory && storedHistory.data.length > 0) {
-      const lastPoint = storedHistory.data[storedHistory.data.length - 1];
-      
-      if (now - storedHistory.lastUpdated < updateInterval) {
-        const updatedData = storedHistory.data.map((point, index) => ({
-          ...point,
-          formattedDate: formatDateForRange(point.timestamp, timeRange),
-        }));
-        updatedData[updatedData.length - 1] = {
-          ...lastPoint,
-          value: currentValue,
-          formattedDate: formatDateForRange(now, timeRange),
-        };
-        setHistoryData(updatedData);
-        return;
-      }
-      
-      const newPoint: HistoryDataPoint = {
-        timestamp: now,
-        value: currentValue,
-        formattedDate: formatDateForRange(now, timeRange),
-      };
-      
-      const updatedData = [...storedHistory.data, newPoint];
-      
-      const cutoffTime = now - 30 * 24 * 60 * 60 * 1000;
-      const filteredData = updatedData.filter((p) => p.timestamp >= cutoffTime);
-      
-      const newStoredHistory: StoredHistory = {
-        data: filteredData,
-        lastUpdated: now,
-      };
-      localStorage.setItem(storageKey, JSON.stringify(newStoredHistory));
-      
-      const rangeData = filterDataByRange(filteredData, timeRange);
-      setHistoryData(rangeData);
-    } else {
-      const generatedData = generateHistoricalData(currentValue, timeRange);
-      const newStoredHistory: StoredHistory = {
-        data: generatedData,
-        lastUpdated: now,
-      };
-      localStorage.setItem(storageKey, JSON.stringify(newStoredHistory));
-      setHistoryData(generatedData);
-    }
-  }, [walletAddress, currentValue, timeRange]);
-
-  const filterDataByRange = (data: HistoryDataPoint[], range: TimeRange): HistoryDataPoint[] => {
+  const filterDataByRange = useCallback((data: PortfolioHistoryEntry[], range: TimeRange): HistoryDataPoint[] => {
     const now = Date.now();
     let cutoff: number;
     
@@ -165,10 +61,44 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
     
     const filtered = data.filter((p) => p.timestamp >= cutoff);
     return filtered.map((p) => ({
-      ...p,
+      timestamp: p.timestamp,
+      value: p.totalValue,
       formattedDate: formatDateForRange(p.timestamp, range),
     }));
-  };
+  }, [formatDateForRange]);
+
+  useEffect(() => {
+    if (!walletAddress || currentValue <= 0) {
+      setHistoryData([]);
+      return;
+    }
+
+    const portfolioHistory = loadPortfolioHistory(walletAddress);
+    
+    if (portfolioHistory.length === 0) {
+      const now = Date.now();
+      setHistoryData([{
+        timestamp: now,
+        value: currentValue,
+        formattedDate: formatDateForRange(now, timeRange)
+      }]);
+      return;
+    }
+
+    const rangeData = filterDataByRange(portfolioHistory, timeRange);
+    
+    if (rangeData.length > 0) {
+      const lastPoint = rangeData[rangeData.length - 1];
+      if (lastPoint.value !== currentValue) {
+        rangeData[rangeData.length - 1] = {
+          ...lastPoint,
+          value: currentValue
+        };
+      }
+    }
+    
+    setHistoryData(rangeData);
+  }, [walletAddress, currentValue, timeRange, formatDateForRange, filterDataByRange]);
 
   const calculateChange = () => {
     if (historyData.length < 2) return { absolute: 0, percentage: 0 };
@@ -297,6 +227,9 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
 
       <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
         <span>{getTimeRangeLabel()}</span>
+        {historyData.length > 1 && (
+          <span>{historyData.length} data points</span>
+        )}
       </div>
     </div>
   );
