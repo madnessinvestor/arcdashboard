@@ -13,7 +13,7 @@ interface WalletHistoryChartProps {
   walletAddress: string;
 }
 
-type TimeRange = "24h" | "1W" | "1M";
+type TimeRange = "24h";
 
 const PORTFOLIO_HISTORY_KEY = "portfolio_history_";
 
@@ -32,27 +32,12 @@ function loadPortfolioHistory(walletAddress: string): PortfolioHistoryEntry[] {
   }
 }
 
-const getIntervalConfig = (range: TimeRange): { intervalMs: number; maxPoints: number; cutoffMs: number } => {
-  switch (range) {
-    case "24h":
-      return {
-        intervalMs: 5 * 60 * 1000,
-        maxPoints: 288,
-        cutoffMs: 24 * 60 * 60 * 1000
-      };
-    case "1W":
-      return {
-        intervalMs: 60 * 60 * 1000,
-        maxPoints: 168,
-        cutoffMs: 7 * 24 * 60 * 60 * 1000
-      };
-    case "1M":
-      return {
-        intervalMs: 24 * 60 * 60 * 1000,
-        maxPoints: 30,
-        cutoffMs: 30 * 24 * 60 * 60 * 1000
-      };
-  }
+const getIntervalConfig = (): { intervalMs: number; maxPoints: number; cutoffMs: number } => {
+  return {
+    intervalMs: 60 * 60 * 1000,
+    maxPoints: 24,
+    cutoffMs: 24 * 60 * 60 * 1000
+  };
 };
 
 const interpolateValue = (
@@ -79,26 +64,18 @@ const interpolateValue = (
 };
 
 export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistoryChartProps) {
-  const [timeRange, setTimeRange] = useState<TimeRange>("24h");
   const [historyData, setHistoryData] = useState<HistoryDataPoint[]>([]);
 
-  const formatDateForRange = useCallback((timestamp: number, range: TimeRange): string => {
+  const formatDateForRange = useCallback((timestamp: number): string => {
     const date = new Date(timestamp);
-    if (range === "24h") {
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    } else if (range === "1W") {
-      return date.toLocaleDateString([], { weekday: "short", hour: "2-digit" });
-    } else {
-      return date.toLocaleDateString([], { month: "short", day: "numeric" });
-    }
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }, []);
 
   const generateInterpolatedData = useCallback((
     data: PortfolioHistoryEntry[],
-    range: TimeRange,
     currentVal: number
   ): HistoryDataPoint[] => {
-    const config = getIntervalConfig(range);
+    const config = getIntervalConfig();
     const now = Date.now();
     const startTime = now - config.cutoffMs;
     
@@ -117,7 +94,7 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       return [{
         timestamp: now,
         value: currentVal,
-        formattedDate: formatDateForRange(now, range)
+        formattedDate: formatDateForRange(now)
       }];
     }
     
@@ -129,7 +106,7 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       points.push({
         timestamp: ts,
         value,
-        formattedDate: formatDateForRange(ts, range)
+        formattedDate: formatDateForRange(ts)
       });
     }
     
@@ -139,7 +116,7 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
         points.push({
           timestamp: now,
           value: currentVal,
-          formattedDate: formatDateForRange(now, range)
+          formattedDate: formatDateForRange(now)
         });
       } else {
         points[points.length - 1] = {
@@ -149,7 +126,7 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       }
     }
     
-    const maxLabels = range === "24h" ? 6 : range === "1W" ? 7 : 8;
+    const maxLabels = 6;
     const skipCount = Math.max(1, Math.floor(points.length / maxLabels));
     
     return points.map((point, index) => ({
@@ -173,14 +150,14 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       setHistoryData([{
         timestamp: now,
         value: currentValue,
-        formattedDate: formatDateForRange(now, timeRange)
+        formattedDate: formatDateForRange(now)
       }]);
       return;
     }
 
-    const interpolatedData = generateInterpolatedData(portfolioHistory, timeRange, currentValue);
+    const interpolatedData = generateInterpolatedData(portfolioHistory, currentValue);
     setHistoryData(interpolatedData);
-  }, [walletAddress, currentValue, timeRange, formatDateForRange, generateInterpolatedData]);
+  }, [walletAddress, currentValue, formatDateForRange, generateInterpolatedData]);
 
   const calculateChange = () => {
     if (historyData.length < 2) return { absolute: 0, percentage: 0 };
@@ -210,16 +187,8 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
 
   const getTimeRangeLabel = () => {
     const now = new Date();
-    if (timeRange === "24h") {
-      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      return `${yesterday.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} - ${now.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
-    } else if (timeRange === "1W") {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return `${weekAgo.toLocaleDateString([], { month: "short", day: "numeric" })} - ${now.toLocaleDateString([], { month: "short", day: "numeric" })}`;
-    } else {
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      return `${monthAgo.toLocaleDateString([], { month: "short", day: "numeric" })} - ${now.toLocaleDateString([], { month: "short", day: "numeric" })}`;
-    }
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return `${yesterday.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} - ${now.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
   };
 
   if (currentValue <= 0 || historyData.length === 0) {
@@ -245,20 +214,9 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
         </div>
         
         <div className="flex items-center gap-1 bg-black/40 rounded-lg p-1">
-          {(["24h", "1W", "1M"] as TimeRange[]).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-3 py-1.5 rounded-md text-sm font-mono transition-all ${
-                timeRange === range
-                  ? "bg-primary text-black font-bold"
-                  : "text-muted-foreground hover:text-white"
-              }`}
-              data-testid={`button-range-${range}`}
-            >
-              {range}
-            </button>
-          ))}
+          <span className="px-3 py-1.5 rounded-md text-sm font-mono bg-primary text-black font-bold" data-testid="text-range-24h">
+            24h
+          </span>
         </div>
       </div>
 
