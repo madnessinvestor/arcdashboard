@@ -90,10 +90,6 @@ const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'UST', 'FRAX', 'TUSD'
 
 const NFT_SYMBOLS = ['ATCL', 'ZKCODEX', 'GM', 'INAME', 'ARCSBT', 'AXO'];
 
-const isNFT = (symbol: string): boolean => {
-  return NFT_SYMBOLS.includes(symbol?.toUpperCase() || '');
-};
-
 const TOKEN_LOGOS: Record<string, string> = {
   'sacs': sacsLogo,
   'kitty': kittyLogo,
@@ -130,10 +126,10 @@ interface PriceCache {
 
 const priceCache: PriceCache = {};
 const CACHE_DURATION = 30000;
-const REQUEST_DELAY = 300;
+const REQUEST_DELAY = 50;
 const MAX_RETRIES = 2;
-const INITIAL_DELAY = 150;
-const BALANCE_DELAY = 200;
+const INITIAL_DELAY = 30;
+const BALANCE_DELAY = 30;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -471,6 +467,7 @@ interface TokenPortfolioProps {
 export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenPortfolioProps) {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [nfts, setNfts] = useState<NFTItem[]>([]);
+  const [nftContractAddresses, setNftContractAddresses] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState<{ phase: string; current: number; total: number; detail?: string }>({ phase: '', current: 0, total: 0 });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
@@ -713,8 +710,8 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
     }
   }, [walletToDisplay, fetchTokens]);
 
-  const fetchNFTs = useCallback(async () => {
-    if (!walletToDisplay) return;
+  const fetchNFTs = useCallback(async (): Promise<Set<string>> => {
+    if (!walletToDisplay) return new Set();
     
     try {
       const response = await fetch(
@@ -723,15 +720,21 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
       
       if (!response.ok) {
         console.error('NFT API request failed:', response.status);
-        return;
+        return new Set();
       }
       
       const data = await response.json();
       
       if (data.items && Array.isArray(data.items)) {
         const nftMap = new Map<string, NFTItem>();
+        const contractAddresses = new Set<string>();
         
         for (const item of data.items) {
+          const contractAddr = (item.token?.address || '').toLowerCase();
+          if (contractAddr) {
+            contractAddresses.add(contractAddr);
+          }
+          
           const key = `${item.token?.address || ''}_${item.token?.name || ''}`;
           
           if (nftMap.has(key)) {
@@ -752,12 +755,18 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         }
         
         setNfts(Array.from(nftMap.values()));
+        setNftContractAddresses(contractAddresses);
+        return contractAddresses;
       } else {
         setNfts([]);
+        setNftContractAddresses(new Set());
+        return new Set();
       }
     } catch (error) {
       console.error('Failed to fetch NFTs:', error);
       setNfts([]);
+      setNftContractAddresses(new Set());
+      return new Set();
     }
   }, [walletToDisplay]);
 
@@ -930,7 +939,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         <div className="flex items-center gap-6">
           <div className="text-right">
             <span className="text-xs font-mono uppercase text-muted-foreground">Tokens</span>
-            <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !isNFT(t.symbol)).length}</p>
+            <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase())).length}</p>
           </div>
           <div className="text-right">
             <span className="text-xs font-mono uppercase text-muted-foreground">NFTs</span>
@@ -971,7 +980,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
 
         <TabsContent value="tokens" className="mt-0">
           {(() => {
-            const regularTokens = tokens.filter(t => !isNFT(t.symbol));
+            const regularTokens = tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase()));
             if (regularTokens.length === 0) {
               return (
                 <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
@@ -992,7 +1001,6 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                     <TableRow className="border-white/5 hover:bg-transparent">
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs">Token</TableHead>
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Price</TableHead>
-                      <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">24h Change</TableHead>
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Amount</TableHead>
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">USD Value</TableHead>
                     </TableRow>
@@ -1059,24 +1067,6 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                               );
                             })()}
                           </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {(() => {
-                            const priceChange = calculateTokenPriceOscillation(token.price || 0, token.contractAddress);
-                            if (!priceChange || (Math.abs(priceChange.absoluteDelta) < 0.0001 && Math.abs(priceChange.percentageDelta) < 0.01)) {
-                              return <span className="text-sm font-mono text-muted-foreground">-</span>;
-                            }
-                            const isPositive = priceChange.percentageDelta >= 0;
-                            const absStr = Math.abs(priceChange.absoluteDelta) < 0.01 
-                              ? '<$0.01' 
-                              : `$${Math.abs(priceChange.absoluteDelta).toFixed(4)}`;
-                            return (
-                              <div className={`text-sm font-mono ${isPositive ? 'text-green-500' : 'text-red-500'}`} data-testid={`text-change-${token.contractAddress}`}>
-                                <span>{isPositive ? '+' : '-'}{absStr}</span>
-                                <span className="ml-1">({isPositive ? '+' : ''}{priceChange.percentageDelta.toFixed(2)}%)</span>
-                              </div>
-                            );
-                          })()}
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="text-sm font-mono text-white" data-testid={`text-balance-${token.contractAddress}`}>
