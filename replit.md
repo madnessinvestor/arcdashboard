@@ -123,6 +123,13 @@ Preferred communication style: Simple, everyday language.
       - Compares current price to 24h ago price from localStorage history
   - **NFT & Enhanced Variation Display (Dec 13, 2025)**:
     - **Real NFT fetching**: NFTs are now fetched from ArcScan API v2 (`/api/v2/addresses/{wallet}/nft?type=ERC-721,ERC-1155`)
+  - **Performance & Token/NFT Classification Fix (Dec 13, 2025)**:
+    - **Faster loading**: Reduced API delays from 200-300ms to 30-50ms for 5-10 second total load time
+    - **Removed 24h Change column**: Simplified token table to show only Token, Price, Amount, USD Value
+    - **Smart Token/NFT separation**: Now uses actual NFT contract addresses from blockchain API to filter
+      - Tokens that are NFTs (ERC-721/ERC-1155) are automatically excluded from Tokens tab
+      - NFTs are only shown in NFTs tab with quantity aggregation
+      - Fixes issue where items like BN, DBM appeared in both tabs
     - **NFT aggregation**: NFTs with same contract are aggregated by quantity
     - **Price variation under Price column**: Each token shows price change ($ and %) below the main price
     - **USD Value variation with icons**: Each token shows value change with visual indicators:
