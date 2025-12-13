@@ -121,3 +121,11 @@ Preferred communication style: Simple, everyday language.
       - Shows absolute change in USDC and percentage change
       - Green for positive, red for negative changes
       - Compares current price to 24h ago price from localStorage history
+  - **NFT & Enhanced Variation Display (Dec 13, 2025)**:
+    - **Real NFT fetching**: NFTs are now fetched from ArcScan API v2 (`/api/v2/addresses/{wallet}/nft?type=ERC-721,ERC-1155`)
+    - **NFT aggregation**: NFTs with same contract are aggregated by quantity
+    - **Price variation under Price column**: Each token shows price change ($ and %) below the main price
+    - **USD Value variation with icons**: Each token shows value change with visual indicators:
+      - TrendingUp icon (green) for positive changes
+      - TrendingDown icon (red) for negative changes
+      - Minus icon (neutral) for no change or $0.00 (0.00%)
