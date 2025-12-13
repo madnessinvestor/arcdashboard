@@ -1,11 +1,12 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Loader2, RefreshCw, Coins, Copy, ExternalLink, Check } from "lucide-react";
+import { Wallet, Loader2, RefreshCw, Coins, Copy, ExternalLink, Check, FileCode } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { JsonRpcProvider, Contract, formatUnits } from "ethers";
 import { ARC_TESTNET } from "@/lib/arc-network";
+import { TransactionHistory } from "./TransactionHistory";
 
 import sacsLogo from "@assets/sacs_1765569951347.png";
 import kittyLogo from "@assets/kitty_1765569951348.png";
@@ -286,6 +287,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [previousSnapshot, setPreviousSnapshot] = useState<PortfolioSnapshot | null>(null);
+  const [activeInnerTab, setActiveInnerTab] = useState("tokens");
   const { toast } = useToast();
   
   const tokensRef = useRef<Token[]>([]);
@@ -348,14 +350,6 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
     return `${sign}${absFormatted} ${symbol} (${sign}${pctFormatted}%)`;
   };
 
-  const getPriceSourceLabel = (source: PriceSource | undefined): string => {
-    switch (source) {
-      case 'fixed': return 'Fixed price';
-      case 'on-chain': return 'On-chain';
-      case 'oracle': return 'Oracle';
-      default: return 'Unknown';
-    }
-  };
 
   const walletToDisplay = searchedWallet || account;
 
@@ -671,114 +665,133 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         </div>
       </div>
 
-      {tokens.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-          <div className="h-14 w-14 rounded-full bg-muted/20 flex items-center justify-center border border-muted/30">
-            <Coins size={28} className="text-muted-foreground" />
-          </div>
-          <h3 className="text-xl font-display font-bold text-white">No Tokens Found</h3>
-          <p className="text-muted-foreground text-sm max-w-md">
-            This wallet has no tokens on Arc Testnet
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-md border border-white/10 bg-card/40 backdrop-blur-sm overflow-hidden">
-          <Table>
-            <TableHeader className="bg-black/40">
-              <TableRow className="border-white/5 hover:bg-transparent">
-                <TableHead className="text-muted-foreground font-mono uppercase text-xs">Token</TableHead>
-                <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Price</TableHead>
-                <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Amount</TableHead>
-                <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">USD Value</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tokens.map((token) => (
-                <TableRow key={token.contractAddress} className="border-white/5 hover:bg-white/5" data-testid={`row-token-${token.contractAddress}`}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 overflow-hidden">
-                        {token.logoUrl ? (
-                          <img 
-                            src={token.logoUrl} 
-                            alt={token.symbol} 
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none';
-                              e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
-                            }}
-                          />
-                        ) : null}
-                        <Coins size={14} className={`text-primary fallback-icon ${token.logoUrl ? 'hidden' : ''}`} />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-medium text-white">{token.symbol}</span>
-                          <a 
-                            href={`${ARC_TESTNET.blockExplorerUrls[0]}/token/${token.contractAddress}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted-foreground hover:text-primary transition-colors"
-                            data-testid={`link-contract-${token.contractAddress}`}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <ExternalLink size={12} />
-                          </a>
+      <Tabs value={activeInnerTab} onValueChange={setActiveInnerTab} className="w-full">
+        <TabsList className="bg-black/40 mb-4">
+          <TabsTrigger 
+            value="tokens" 
+            className="data-[state=active]:bg-primary data-[state=active]:text-black gap-2"
+            data-testid="tab-inner-tokens"
+          >
+            <Coins className="h-4 w-4" />
+            Tokens
+          </TabsTrigger>
+          <TabsTrigger 
+            value="transactions" 
+            className="data-[state=active]:bg-primary data-[state=active]:text-black gap-2"
+            data-testid="tab-inner-transactions"
+          >
+            <FileCode className="h-4 w-4" />
+            Transactions
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="tokens" className="mt-0">
+          {tokens.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+              <div className="h-14 w-14 rounded-full bg-muted/20 flex items-center justify-center border border-muted/30">
+                <Coins size={28} className="text-muted-foreground" />
+              </div>
+              <h3 className="text-xl font-display font-bold text-white">No Tokens Found</h3>
+              <p className="text-muted-foreground text-sm max-w-md">
+                This wallet has no tokens on Arc Testnet
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-md border border-white/10 bg-card/40 backdrop-blur-sm overflow-hidden">
+              <Table>
+                <TableHeader className="bg-black/40">
+                  <TableRow className="border-white/5 hover:bg-transparent">
+                    <TableHead className="text-muted-foreground font-mono uppercase text-xs">Token</TableHead>
+                    <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Price</TableHead>
+                    <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Amount</TableHead>
+                    <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">USD Value</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tokens.map((token) => (
+                    <TableRow key={token.contractAddress} className="border-white/5 hover:bg-white/5" data-testid={`row-token-${token.contractAddress}`}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 overflow-hidden">
+                            {token.logoUrl ? (
+                              <img 
+                                src={token.logoUrl} 
+                                alt={token.symbol} 
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                  e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
+                                }}
+                              />
+                            ) : null}
+                            <Coins size={14} className={`text-primary fallback-icon ${token.logoUrl ? 'hidden' : ''}`} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium text-white">{token.symbol}</span>
+                              <a 
+                                href={`${ARC_TESTNET.blockExplorerUrls[0]}/token/${token.contractAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-muted-foreground hover:text-primary transition-colors"
+                                data-testid={`link-contract-${token.contractAddress}`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ExternalLink size={12} />
+                              </a>
+                            </div>
+                            <span className="block text-[10px] text-muted-foreground">{token.name || 'Unknown'}</span>
+                          </div>
                         </div>
-                        <span className="block text-[10px] text-muted-foreground">{token.name || 'Unknown'}</span>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex flex-col items-end">
-                      <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
-                        {token.symbol?.toUpperCase() === 'USDC' ? '1.00 (fixed)' : formatPrice(token.price || 0)}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/70" data-testid={`text-price-source-${token.contractAddress}`}>
-                        {getPriceSourceLabel(token.priceSource)}
-                        {token.priceTimestamp && (
-                          <> @ {new Date(token.priceTimestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}</>
-                        )}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <span className="text-sm font-mono text-white" data-testid={`text-balance-${token.contractAddress}`}>
-                      {formatBalance(token.balance || '0')}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex flex-col items-end">
-                      <span className="text-sm font-mono font-bold text-primary" data-testid={`text-value-${token.contractAddress}`}>
-                        {formatValue(token.value)}
-                      </span>
-                      {(() => {
-                        const delta = calculateTokenDelta(token.value || 0, token.contractAddress);
-                        if (!delta) return null;
-                        const isPositive = delta.absoluteDelta > 0;
-                        const isNegative = delta.absoluteDelta < 0;
-                        const isNoChange = Math.abs(delta.absoluteDelta) < 0.01;
-                        return (
-                          <span 
-                            className={`text-[10px] font-mono ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground/70'}`}
-                            data-testid={`text-delta-${token.contractAddress}`}
-                          >
-                            {isNoChange ? '\u2014' : (
-                              <>
-                                {isPositive ? '\u2191' : '\u2193'} {Math.abs(delta.absoluteDelta) < 0.01 ? '<0.01' : delta.absoluteDelta.toFixed(2)} ({delta.percentageDelta >= 0 ? '+' : ''}{Math.abs(delta.percentageDelta) < 0.01 ? '<0.01' : delta.percentageDelta.toFixed(1)}%)
-                              </>
-                            )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
+                          {formatPrice(token.price || 0)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="text-sm font-mono text-white" data-testid={`text-balance-${token.contractAddress}`}>
+                          {formatBalance(token.balance || '0')}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex flex-col items-end">
+                          <span className="text-sm font-mono font-bold text-primary" data-testid={`text-value-${token.contractAddress}`}>
+                            {formatValue(token.value)}
                           </span>
-                        );
-                      })()}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+                          {(() => {
+                            const delta = calculateTokenDelta(token.value || 0, token.contractAddress);
+                            if (!delta) return null;
+                            const isPositive = delta.absoluteDelta > 0;
+                            const isNegative = delta.absoluteDelta < 0;
+                            const isNoChange = Math.abs(delta.absoluteDelta) < 0.01;
+                            return (
+                              <span 
+                                className={`text-[10px] font-mono ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground/70'}`}
+                                data-testid={`text-delta-${token.contractAddress}`}
+                              >
+                                {isNoChange ? '\u2014' : (
+                                  <>
+                                    {isPositive ? '\u2191' : '\u2193'} {Math.abs(delta.absoluteDelta) < 0.01 ? '<0.01' : delta.absoluteDelta.toFixed(2)} ({delta.percentageDelta >= 0 ? '+' : ''}{Math.abs(delta.percentageDelta) < 0.01 ? '<0.01' : delta.percentageDelta.toFixed(1)}%)
+                                  </>
+                                )}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="transactions" className="mt-0">
+          <TransactionHistory walletAddress={walletToDisplay} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
