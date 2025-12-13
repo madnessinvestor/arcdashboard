@@ -214,6 +214,29 @@ function getTokenPriceChange(tokenAddress: string, currentValue: number, priceHi
   return { absoluteDelta, percentageDelta };
 }
 
+function getTokenPriceOscillation(tokenAddress: string, currentPrice: number, priceHistory: TokenPriceHistory, timeRangeHours: number = 24): { absoluteDelta: number; percentageDelta: number } | null {
+  const history = priceHistory[tokenAddress.toLowerCase()];
+  if (!history || history.length < 2) return null;
+  
+  const now = Date.now();
+  const cutoff = now - timeRangeHours * 60 * 60 * 1000;
+  const oldEntries = history.filter(e => e.timestamp <= cutoff);
+  
+  let oldPrice: number;
+  if (oldEntries.length > 0) {
+    oldPrice = oldEntries[oldEntries.length - 1].price;
+  } else {
+    oldPrice = history[0].price;
+  }
+  
+  if (oldPrice === 0 && currentPrice === 0) return null;
+  
+  const absoluteDelta = currentPrice - oldPrice;
+  const percentageDelta = oldPrice > 0 ? ((currentPrice - oldPrice) / oldPrice) * 100 : (currentPrice > 0 ? 100 : 0);
+  
+  return { absoluteDelta, percentageDelta };
+}
+
 class RequestQueue {
   private queue: (() => Promise<void>)[] = [];
   private isProcessing = false;
@@ -459,6 +482,13 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
     if (!walletToDisplay) return null;
     const priceHistory = loadPriceHistory(walletToDisplay);
     const result = getTokenPriceChange(tokenAddress, currentValue, priceHistory, 24);
+    return result;
+  };
+
+  const calculateTokenPriceOscillation = (currentPrice: number, tokenAddress: string): TokenDelta | null => {
+    if (!walletToDisplay) return null;
+    const priceHistory = loadPriceHistory(walletToDisplay);
+    const result = getTokenPriceOscillation(tokenAddress, currentPrice, priceHistory, 24);
     return result;
   };
 
@@ -933,9 +963,29 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
-                          {formatPrice(token.price || 0)}
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
+                            {formatPrice(token.price || 0)}
+                          </span>
+                          {(() => {
+                            const priceOsc = calculateTokenPriceOscillation(token.price || 0, token.contractAddress);
+                            if (!priceOsc) return null;
+                            const isPositive = priceOsc.absoluteDelta > 0;
+                            const isNegative = priceOsc.absoluteDelta < 0;
+                            const absValue = Math.abs(priceOsc.absoluteDelta);
+                            const pctValue = Math.abs(priceOsc.percentageDelta);
+                            if (absValue < 0.0001 && pctValue < 0.01) return null;
+                            return (
+                              <span 
+                                className={`text-[10px] font-mono ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground/70'}`}
+                                data-testid={`text-price-change-${token.contractAddress}`}
+                              >
+                                {isPositive ? '+' : isNegative ? '-' : ''}
+                                {absValue < 0.0001 ? '<0.0001' : absValue < 0.01 ? absValue.toFixed(4) : absValue.toFixed(2)} USDC ({isPositive ? '+' : isNegative ? '-' : ''}{pctValue < 0.01 ? '0.00' : pctValue.toFixed(2)}%)
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <span className="text-sm font-mono text-white" data-testid={`text-balance-${token.contractAddress}`}>

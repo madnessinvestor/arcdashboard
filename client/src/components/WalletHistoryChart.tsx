@@ -32,6 +32,52 @@ function loadPortfolioHistory(walletAddress: string): PortfolioHistoryEntry[] {
   }
 }
 
+const getIntervalConfig = (range: TimeRange): { intervalMs: number; maxPoints: number; cutoffMs: number } => {
+  switch (range) {
+    case "24h":
+      return {
+        intervalMs: 5 * 60 * 1000,
+        maxPoints: 288,
+        cutoffMs: 24 * 60 * 60 * 1000
+      };
+    case "1W":
+      return {
+        intervalMs: 60 * 60 * 1000,
+        maxPoints: 168,
+        cutoffMs: 7 * 24 * 60 * 60 * 1000
+      };
+    case "1M":
+      return {
+        intervalMs: 24 * 60 * 60 * 1000,
+        maxPoints: 30,
+        cutoffMs: 30 * 24 * 60 * 60 * 1000
+      };
+  }
+};
+
+const interpolateValue = (
+  timestamp: number,
+  data: PortfolioHistoryEntry[]
+): number => {
+  if (data.length === 0) return 0;
+  if (data.length === 1) return data[0].totalValue;
+  
+  const before = data.filter(d => d.timestamp <= timestamp);
+  const after = data.filter(d => d.timestamp > timestamp);
+  
+  if (before.length === 0) return data[0].totalValue;
+  if (after.length === 0) return data[data.length - 1].totalValue;
+  
+  const prevPoint = before[before.length - 1];
+  const nextPoint = after[0];
+  
+  const timeDiff = nextPoint.timestamp - prevPoint.timestamp;
+  if (timeDiff === 0) return prevPoint.totalValue;
+  
+  const ratio = (timestamp - prevPoint.timestamp) / timeDiff;
+  return prevPoint.totalValue + (nextPoint.totalValue - prevPoint.totalValue) * ratio;
+};
+
 export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistoryChartProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
   const [historyData, setHistoryData] = useState<HistoryDataPoint[]>([]);
@@ -47,23 +93,70 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
     }
   }, []);
 
-  const filterDataByRange = useCallback((data: PortfolioHistoryEntry[], range: TimeRange): HistoryDataPoint[] => {
+  const generateInterpolatedData = useCallback((
+    data: PortfolioHistoryEntry[],
+    range: TimeRange,
+    currentVal: number
+  ): HistoryDataPoint[] => {
+    const config = getIntervalConfig(range);
     const now = Date.now();
-    let cutoff: number;
+    const startTime = now - config.cutoffMs;
     
-    if (range === "24h") {
-      cutoff = now - 24 * 60 * 60 * 1000;
-    } else if (range === "1W") {
-      cutoff = now - 7 * 24 * 60 * 60 * 1000;
+    const inRangeData = data.filter(p => p.timestamp >= startTime);
+    const beforeRangeData = data.filter(p => p.timestamp < startTime);
+    
+    let dataForInterpolation: PortfolioHistoryEntry[];
+    if (beforeRangeData.length > 0) {
+      const lastBeforeRange = beforeRangeData[beforeRangeData.length - 1];
+      dataForInterpolation = [lastBeforeRange, ...inRangeData];
     } else {
-      cutoff = now - 30 * 24 * 60 * 60 * 1000;
+      dataForInterpolation = inRangeData;
     }
     
-    const filtered = data.filter((p) => p.timestamp >= cutoff);
-    return filtered.map((p) => ({
-      timestamp: p.timestamp,
-      value: p.totalValue,
-      formattedDate: formatDateForRange(p.timestamp, range),
+    if (dataForInterpolation.length === 0) {
+      return [{
+        timestamp: now,
+        value: currentVal,
+        formattedDate: formatDateForRange(now, range)
+      }];
+    }
+    
+    const points: HistoryDataPoint[] = [];
+    const alignedStart = Math.ceil(startTime / config.intervalMs) * config.intervalMs;
+    
+    for (let ts = alignedStart; ts <= now; ts += config.intervalMs) {
+      const value = interpolateValue(ts, dataForInterpolation);
+      points.push({
+        timestamp: ts,
+        value,
+        formattedDate: formatDateForRange(ts, range)
+      });
+    }
+    
+    if (points.length > 0) {
+      const lastPoint = points[points.length - 1];
+      if (now - lastPoint.timestamp > config.intervalMs / 2) {
+        points.push({
+          timestamp: now,
+          value: currentVal,
+          formattedDate: formatDateForRange(now, range)
+        });
+      } else {
+        points[points.length - 1] = {
+          ...lastPoint,
+          value: currentVal
+        };
+      }
+    }
+    
+    const maxLabels = range === "24h" ? 6 : range === "1W" ? 7 : 8;
+    const skipCount = Math.max(1, Math.floor(points.length / maxLabels));
+    
+    return points.map((point, index) => ({
+      ...point,
+      formattedDate: index % skipCount === 0 || index === points.length - 1 
+        ? point.formattedDate 
+        : ""
     }));
   }, [formatDateForRange]);
 
@@ -85,20 +178,9 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       return;
     }
 
-    const rangeData = filterDataByRange(portfolioHistory, timeRange);
-    
-    if (rangeData.length > 0) {
-      const lastPoint = rangeData[rangeData.length - 1];
-      if (lastPoint.value !== currentValue) {
-        rangeData[rangeData.length - 1] = {
-          ...lastPoint,
-          value: currentValue
-        };
-      }
-    }
-    
-    setHistoryData(rangeData);
-  }, [walletAddress, currentValue, timeRange, formatDateForRange, filterDataByRange]);
+    const interpolatedData = generateInterpolatedData(portfolioHistory, timeRange, currentValue);
+    setHistoryData(interpolatedData);
+  }, [walletAddress, currentValue, timeRange, formatDateForRange, generateInterpolatedData]);
 
   const calculateChange = () => {
     if (historyData.length < 2) return { absolute: 0, percentage: 0 };
