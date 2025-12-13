@@ -1,7 +1,7 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Loader2, RefreshCw, Coins, Copy, ExternalLink, Check, FileCode, Image } from "lucide-react";
+import { Wallet, Loader2, RefreshCw, Coins, Copy, ExternalLink, Check, FileCode, Image, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { JsonRpcProvider, Contract, formatUnits } from "ethers";
@@ -34,6 +34,16 @@ interface Token {
   logoUrl?: string;
   priceSource?: PriceSource;
   priceTimestamp?: number;
+}
+
+interface NFTItem {
+  tokenId: string;
+  contractAddress: string;
+  name: string;
+  symbol: string;
+  tokenUri?: string;
+  imageUrl?: string;
+  quantity: number;
 }
 
 interface PortfolioSnapshot {
@@ -460,6 +470,7 @@ interface TokenPortfolioProps {
 
 export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenPortfolioProps) {
   const [tokens, setTokens] = useState<Token[]>([]);
+  const [nfts, setNfts] = useState<NFTItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState<{ phase: string; current: number; total: number; detail?: string }>({ phase: '', current: 0, total: 0 });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
@@ -702,6 +713,62 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
     }
   }, [walletToDisplay, fetchTokens]);
 
+  const fetchNFTs = useCallback(async () => {
+    if (!walletToDisplay) return;
+    
+    try {
+      const response = await fetch(
+        `https://testnet.arcscan.app/api/v2/addresses/${walletToDisplay}/nft?type=ERC-721,ERC-1155`
+      );
+      
+      if (!response.ok) {
+        console.error('NFT API request failed:', response.status);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data.items && Array.isArray(data.items)) {
+        const nftMap = new Map<string, NFTItem>();
+        
+        for (const item of data.items) {
+          const key = `${item.token?.address || ''}_${item.token?.name || ''}`;
+          
+          if (nftMap.has(key)) {
+            const existing = nftMap.get(key)!;
+            existing.quantity += 1;
+          } else {
+            const tokenLogo = item.token?.address ? getTokenLogoUrl(item.token.address, item.token?.symbol || '') : '';
+            nftMap.set(key, {
+              tokenId: item.id || '0',
+              contractAddress: item.token?.address || '',
+              name: item.token?.name || 'Unknown NFT',
+              symbol: item.token?.symbol || 'NFT',
+              tokenUri: item.metadata?.image || item.image_url || '',
+              imageUrl: tokenLogo || item.metadata?.image || item.image_url || '',
+              quantity: 1
+            });
+          }
+        }
+        
+        setNfts(Array.from(nftMap.values()));
+      } else {
+        setNfts([]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch NFTs:', error);
+      setNfts([]);
+    }
+  }, [walletToDisplay]);
+
+  useEffect(() => {
+    if (walletToDisplay) {
+      fetchNFTs();
+    } else {
+      setNfts([]);
+    }
+  }, [walletToDisplay, fetchNFTs]);
+
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   
   const formatBalance = (balance: string) => {
@@ -867,7 +934,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
           </div>
           <div className="text-right">
             <span className="text-xs font-mono uppercase text-muted-foreground">NFTs</span>
-            <p className="text-xl font-display font-bold text-white" data-testid="text-nft-count">{tokens.filter(t => isNFT(t.symbol)).length}</p>
+            <p className="text-xl font-display font-bold text-white" data-testid="text-nft-count">{nfts.reduce((sum, n) => sum + n.quantity, 0)}</p>
           </div>
         </div>
       </div>
@@ -968,9 +1035,30 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
-                            {formatPrice(token.price || 0)}
-                          </span>
+                          <div className="flex flex-col items-end">
+                            <span className="text-sm font-mono text-muted-foreground" data-testid={`text-price-${token.contractAddress}`}>
+                              {formatPrice(token.price || 0)}
+                            </span>
+                            {(() => {
+                              const priceChange = calculateTokenPriceOscillation(token.price || 0, token.contractAddress);
+                              if (!priceChange || (Math.abs(priceChange.absoluteDelta) < 0.0001 && Math.abs(priceChange.percentageDelta) < 0.01)) {
+                                return (
+                                  <span className="text-[10px] font-mono text-muted-foreground">
+                                    $0.00 (0.00%)
+                                  </span>
+                                );
+                              }
+                              const isPositive = priceChange.percentageDelta >= 0;
+                              const absStr = Math.abs(priceChange.absoluteDelta) < 0.01 
+                                ? '$0.01' 
+                                : `$${Math.abs(priceChange.absoluteDelta).toFixed(4)}`;
+                              return (
+                                <span className={`text-[10px] font-mono ${isPositive ? 'text-green-500' : 'text-red-500'}`} data-testid={`text-price-change-${token.contractAddress}`}>
+                                  {isPositive ? '+' : '-'}{absStr} ({isPositive ? '+' : ''}{priceChange.percentageDelta.toFixed(2)}%)
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           {(() => {
@@ -996,9 +1084,43 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className="text-sm font-mono font-bold text-primary" data-testid={`text-value-${token.contractAddress}`}>
-                            {formatValue(token.value)}
-                          </span>
+                          <div className="flex flex-col items-end">
+                            <span className="text-sm font-mono font-bold text-primary" data-testid={`text-value-${token.contractAddress}`}>
+                              {formatValue(token.value)}
+                            </span>
+                            {(() => {
+                              const valueChange = calculateTokenDelta(token.value || 0, token.contractAddress);
+                              if (!valueChange || (Math.abs(valueChange.absoluteDelta) < 0.01 && Math.abs(valueChange.percentageDelta) < 0.01)) {
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <Minus size={10} className="text-muted-foreground" />
+                                    <span className="text-[10px] font-mono text-muted-foreground">
+                                      $0.00 (0.00%)
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              const isPositive = valueChange.percentageDelta > 0;
+                              const isNegative = valueChange.percentageDelta < 0;
+                              const absStr = Math.abs(valueChange.absoluteDelta) < 0.01 
+                                ? '$0.01' 
+                                : `$${Math.abs(valueChange.absoluteDelta).toFixed(2)}`;
+                              return (
+                                <div className={`flex items-center gap-1 ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                  {isPositive ? (
+                                    <TrendingUp size={10} />
+                                  ) : isNegative ? (
+                                    <TrendingDown size={10} />
+                                  ) : (
+                                    <Minus size={10} />
+                                  )}
+                                  <span className="text-[10px] font-mono" data-testid={`text-value-change-${token.contractAddress}`}>
+                                    {isPositive ? '+' : isNegative ? '-' : ''}{absStr} ({isPositive ? '+' : ''}{valueChange.percentageDelta.toFixed(2)}%)
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1011,8 +1133,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
 
         <TabsContent value="nfts" className="mt-0">
           {(() => {
-            const nftTokens = tokens.filter(t => isNFT(t.symbol));
-            if (nftTokens.length === 0) {
+            if (nfts.length === 0) {
               return (
                 <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
                   <div className="h-14 w-14 rounded-full bg-muted/20 flex items-center justify-center border border-muted/30">
@@ -1036,14 +1157,14 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {nftTokens.map((nft) => (
-                      <TableRow key={nft.contractAddress} className="border-white/5 hover:bg-white/5" data-testid={`row-nft-${nft.contractAddress}`}>
+                    {nfts.map((nft, index) => (
+                      <TableRow key={`${nft.contractAddress}_${index}`} className="border-white/5 hover:bg-white/5" data-testid={`row-nft-${nft.contractAddress}`}>
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20 overflow-hidden">
-                              {nft.logoUrl ? (
+                              {nft.imageUrl ? (
                                 <img 
-                                  src={nft.logoUrl} 
+                                  src={nft.imageUrl} 
                                   alt={nft.symbol} 
                                   className="h-full w-full object-cover"
                                   onError={(e) => {
@@ -1052,7 +1173,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                                   }}
                                 />
                               ) : null}
-                              <Image size={14} className={`text-primary fallback-icon ${nft.logoUrl ? 'hidden' : ''}`} />
+                              <Image size={14} className={`text-primary fallback-icon ${nft.imageUrl ? 'hidden' : ''}`} />
                             </div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-sm font-medium text-white">{nft.symbol}</span>
@@ -1074,7 +1195,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="text-sm font-mono text-white" data-testid={`text-nft-balance-${nft.contractAddress}`}>
-                            {formatBalance(nft.balance || '0')}
+                            {nft.quantity}
                           </span>
                         </TableCell>
                       </TableRow>
