@@ -1,8 +1,10 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, ExternalLink, ArrowUpRight, ArrowDownLeft, FileCode, Check, AlertCircle } from "lucide-react";
+import { Loader2, RefreshCw, ExternalLink, ArrowUpRight, ArrowDownLeft, FileCode, Check, AlertCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import React, { useState, useEffect, useCallback } from "react";
 import { ARC_TESTNET } from "@/lib/arc-network";
+
+const TRANSACTIONS_PER_PAGE = 10;
 
 interface Transaction {
   hash: string;
@@ -27,6 +29,42 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.ceil(transactions.length / TRANSACTIONS_PER_PAGE);
+  const startIndex = (currentPage - 1) * TRANSACTIONS_PER_PAGE;
+  const endIndex = startIndex + TRANSACTIONS_PER_PAGE;
+  const currentTransactions = transactions.slice(startIndex, endIndex);
+
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const getVisiblePageNumbers = () => {
+    const pages: number[] = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      let start = Math.max(1, currentPage - 2);
+      let end = Math.min(totalPages, start + maxVisiblePages - 1);
+      
+      if (end - start < maxVisiblePages - 1) {
+        start = Math.max(1, end - maxVisiblePages + 1);
+      }
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+    }
+    
+    return pages;
+  };
 
   const formatTimestamp = (date: Date): string => {
     return date.toLocaleTimeString('en-US', { 
@@ -165,9 +203,11 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
 
   useEffect(() => {
     if (walletAddress) {
+      setCurrentPage(1);
       fetchTransactions();
     } else {
       setTransactions([]);
+      setCurrentPage(1);
     }
   }, [walletAddress, fetchTransactions]);
 
@@ -261,7 +301,7 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactions.map((tx) => {
+              {currentTransactions.map((tx) => {
                 const txType = getTransactionType(tx, walletAddress);
                 const isOutgoing = tx.from.toLowerCase() === walletAddress.toLowerCase();
                 return (
@@ -322,6 +362,71 @@ export function TransactionHistory({ walletAddress }: TransactionHistoryProps) {
               })}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {transactions.length > TRANSACTIONS_PER_PAGE && (
+        <div className="flex items-center justify-center gap-2 pt-4" data-testid="pagination-container">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => goToPage(1)}
+            disabled={currentPage === 1}
+            className="text-muted-foreground"
+            data-testid="button-first-page"
+          >
+            <ChevronsLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+            className="text-muted-foreground"
+            data-testid="button-prev-page"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          
+          <div className="flex items-center gap-1">
+            {getVisiblePageNumbers().map((pageNum) => (
+              <Button
+                key={pageNum}
+                variant={currentPage === pageNum ? "default" : "ghost"}
+                size="sm"
+                onClick={() => goToPage(pageNum)}
+                className={currentPage === pageNum ? "bg-primary text-black" : "text-muted-foreground"}
+                data-testid={`button-page-${pageNum}`}
+              >
+                {pageNum}
+              </Button>
+            ))}
+          </div>
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className="text-muted-foreground"
+            data-testid="button-next-page"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => goToPage(totalPages)}
+            disabled={currentPage === totalPages}
+            className="text-muted-foreground"
+            data-testid="button-last-page"
+          >
+            <ChevronsRight className="h-4 w-4" />
+          </Button>
+          
+          <span className="text-xs text-muted-foreground ml-2" data-testid="text-page-info">
+            Page {currentPage} of {totalPages}
+          </span>
         </div>
       )}
     </div>

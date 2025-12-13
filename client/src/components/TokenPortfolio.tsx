@@ -113,8 +113,9 @@ interface PriceCache {
 
 const priceCache: PriceCache = {};
 const CACHE_DURATION = 30000;
-const REQUEST_DELAY = 300;
+const REQUEST_DELAY = 500;
 const MAX_RETRIES = 3;
+const INITIAL_DELAY = 100;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -391,6 +392,10 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
             total: totalTokens,
             detail: token.symbol || 'Unknown'
           });
+          
+          if (i > 0) {
+            await delay(INITIAL_DELAY + (i * 50));
+          }
           
           const result = await fetchWithRetry(async () => {
             const contract = new Contract(token.contractAddress, ERC20_ABI, provider);
@@ -761,20 +766,17 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                           </span>
                           {(() => {
                             const delta = calculateTokenDelta(token.value || 0, token.contractAddress);
-                            if (!delta) return null;
-                            const isPositive = delta.absoluteDelta > 0;
-                            const isNegative = delta.absoluteDelta < 0;
-                            const isNoChange = Math.abs(delta.absoluteDelta) < 0.01;
+                            const isPositive = delta ? delta.absoluteDelta > 0 : false;
+                            const isNegative = delta ? delta.absoluteDelta < 0 : false;
+                            const absoluteValue = delta ? Math.abs(delta.absoluteDelta) : 0;
+                            const percentageValue = delta ? delta.percentageDelta : 0;
                             return (
                               <span 
                                 className={`text-[10px] font-mono ${isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-muted-foreground/70'}`}
                                 data-testid={`text-delta-${token.contractAddress}`}
                               >
-                                {isNoChange ? '\u2014' : (
-                                  <>
-                                    {isPositive ? '\u2191' : '\u2193'} {Math.abs(delta.absoluteDelta) < 0.01 ? '<0.01' : delta.absoluteDelta.toFixed(2)} ({delta.percentageDelta >= 0 ? '+' : ''}{Math.abs(delta.percentageDelta) < 0.01 ? '<0.01' : delta.percentageDelta.toFixed(1)}%)
-                                  </>
-                                )}
+                                {isPositive ? '+' : isNegative ? '-' : '+'}
+                                {absoluteValue < 0.01 ? '0.00' : absoluteValue.toFixed(2)} ({isPositive ? '+' : isNegative ? '-' : '+'}{Math.abs(percentageValue) < 0.01 ? '0.00' : Math.abs(percentageValue).toFixed(2)}%)
                               </span>
                             );
                           })()}
