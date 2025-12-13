@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { JsonRpcProvider, Contract, formatUnits } from "ethers";
 import { ARC_TESTNET } from "@/lib/arc-network";
 import { TransactionHistory } from "./TransactionHistory";
+import { WalletHistoryChart } from "./WalletHistoryChart";
 
 import sacsLogo from "@assets/sacs_1765569951347.png";
 import kittyLogo from "@assets/kitty_1765569951348.png";
@@ -119,6 +120,52 @@ const INITIAL_DELAY = 100;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+class RequestQueue {
+  private queue: (() => Promise<void>)[] = [];
+  private isProcessing = false;
+
+  async add<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          const result = await fn();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+      this.processQueue();
+    });
+  }
+
+  private async processQueue() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+
+    try {
+      while (this.queue.length > 0) {
+        const task = this.queue.shift();
+        if (task) {
+          try {
+            await task();
+          } catch (error) {
+            console.error('Queue task error:', error);
+          }
+          await delay(REQUEST_DELAY);
+        }
+      }
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+
+  clear() {
+    this.queue = [];
+  }
+}
+
+const requestQueue = new RequestQueue();
+
 async function fetchWithRetry<T>(
   fn: () => Promise<T>,
   retries: number = MAX_RETRIES,
@@ -138,7 +185,7 @@ async function fetchWithRetry<T>(
   return null;
 }
 
-async function fetchPriceFromCoinGecko(symbol: string): Promise<number> {
+async function fetchPriceFromCoinGeckoInternal(symbol: string): Promise<number> {
   const cacheKey = `coingecko_${symbol.toLowerCase()}`;
   const cached = priceCache[cacheKey];
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
@@ -177,7 +224,11 @@ async function fetchPriceFromCoinGecko(symbol: string): Promise<number> {
   }
 }
 
-async function fetchPriceFromPool(tokenAddress: string): Promise<number> {
+async function fetchPriceFromCoinGecko(symbol: string): Promise<number> {
+  return requestQueue.add(() => fetchPriceFromCoinGeckoInternal(symbol));
+}
+
+async function fetchPriceFromPoolInternal(tokenAddress: string): Promise<number> {
   const cacheKey = `pool_${tokenAddress.toLowerCase()}`;
   const cached = priceCache[cacheKey];
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
@@ -227,6 +278,10 @@ async function fetchPriceFromPool(tokenAddress: string): Promise<number> {
     console.error('Pool price fetch error:', error);
     return 0;
   }
+}
+
+async function fetchPriceFromPool(tokenAddress: string): Promise<number> {
+  return requestQueue.add(() => fetchPriceFromPoolInternal(tokenAddress));
 }
 
 async function fetchTokenPrices(
@@ -669,6 +724,8 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
           <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.length}</p>
         </div>
       </div>
+
+      <WalletHistoryChart currentValue={getTotalValue()} walletAddress={walletToDisplay} />
 
       <Tabs value={activeInnerTab} onValueChange={setActiveInnerTab} className="w-full">
         <TabsList className="bg-black/40 mb-4">
