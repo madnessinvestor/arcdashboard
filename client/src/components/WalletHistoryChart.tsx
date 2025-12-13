@@ -6,6 +6,7 @@ interface HistoryDataPoint {
   timestamp: number;
   value: number;
   formattedDate: string;
+  displayLabel: string;
 }
 
 interface WalletHistoryChartProps {
@@ -34,8 +35,8 @@ function loadPortfolioHistory(walletAddress: string): PortfolioHistoryEntry[] {
 
 const getIntervalConfig = (): { intervalMs: number; maxPoints: number; cutoffMs: number } => {
   return {
-    intervalMs: 60 * 60 * 1000,
-    maxPoints: 24,
+    intervalMs: 5 * 60 * 1000,
+    maxPoints: 288,
     cutoffMs: 24 * 60 * 60 * 1000
   };
 };
@@ -94,7 +95,8 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       return [{
         timestamp: now,
         value: currentVal,
-        formattedDate: formatDateForRange(now)
+        formattedDate: formatDateForRange(now),
+        displayLabel: formatDateForRange(now)
       }];
     }
     
@@ -106,7 +108,8 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       points.push({
         timestamp: ts,
         value,
-        formattedDate: formatDateForRange(ts)
+        formattedDate: formatDateForRange(ts),
+        displayLabel: formatDateForRange(ts)
       });
     }
     
@@ -116,7 +119,8 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
         points.push({
           timestamp: now,
           value: currentVal,
-          formattedDate: formatDateForRange(now)
+          formattedDate: formatDateForRange(now),
+          displayLabel: formatDateForRange(now)
         });
       } else {
         points[points.length - 1] = {
@@ -126,12 +130,12 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       }
     }
     
-    const maxLabels = 6;
-    const skipCount = Math.max(1, Math.floor(points.length / maxLabels));
+    const targetLabels = 12;
+    const skipCount = Math.max(1, Math.floor(points.length / targetLabels));
     
     return points.map((point, index) => ({
       ...point,
-      formattedDate: index % skipCount === 0 || index === points.length - 1 
+      displayLabel: index % skipCount === 0 || index === points.length - 1 
         ? point.formattedDate 
         : ""
     }));
@@ -150,7 +154,8 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       setHistoryData([{
         timestamp: now,
         value: currentValue,
-        formattedDate: formatDateForRange(now)
+        formattedDate: formatDateForRange(now),
+        displayLabel: formatDateForRange(now)
       }]);
       return;
     }
@@ -185,10 +190,24 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
     return `$${(value / 1000000).toFixed(1)}M`;
   };
 
-  const getTimeRangeLabel = () => {
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    return `${yesterday.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} - ${now.toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const dataPoint = payload[0].payload as HistoryDataPoint;
+      return (
+        <div style={{
+          backgroundColor: "rgba(0, 0, 0, 0.9)",
+          border: "1px solid rgba(255, 255, 255, 0.1)",
+          borderRadius: "8px",
+          padding: "8px 12px",
+        }}>
+          <p style={{ color: "#9ca3af", fontSize: 12, margin: 0 }}>{dataPoint.formattedDate}</p>
+          <p style={{ color: "#fff", fontSize: 14, fontWeight: "bold", margin: "4px 0 0 0" }}>
+            {formatValue(payload[0].value)}
+          </p>
+        </div>
+      );
+    }
+    return null;
   };
 
   if (currentValue <= 0 || historyData.length === 0) {
@@ -222,7 +241,7 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
 
       <div className="h-48" data-testid="chart-container">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={historyData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+          <AreaChart data={historyData} margin={{ top: 5, right: 5, left: 0, bottom: 20 }}>
             <defs>
               <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={isPositive ? "#22c55e" : "#ef4444"} stopOpacity={0.3} />
@@ -230,11 +249,14 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
               </linearGradient>
             </defs>
             <XAxis
-              dataKey="formattedDate"
+              dataKey="displayLabel"
               axisLine={false}
               tickLine={false}
               tick={{ fill: "#6b7280", fontSize: 10 }}
-              interval="preserveStartEnd"
+              interval={0}
+              angle={-45}
+              textAnchor="end"
+              height={40}
             />
             <YAxis
               axisLine={false}
@@ -244,16 +266,7 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
               domain={["dataMin * 0.95", "dataMax * 1.05"]}
               width={60}
             />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "rgba(0, 0, 0, 0.9)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                borderRadius: "8px",
-                padding: "8px 12px",
-              }}
-              labelStyle={{ color: "#9ca3af", fontSize: 12 }}
-              formatter={(value: number) => [formatValue(value), "Value"]}
-            />
+            <Tooltip content={<CustomTooltip />} />
             <Area
               type="monotone"
               dataKey="value"
@@ -266,9 +279,9 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
-        <span>{getTimeRangeLabel()}</span>
+        <span>Updates every 5 minutes</span>
         {historyData.length > 1 && (
-          <span>{historyData.length} data points</span>
+          <span>{historyData.length} data points (24h)</span>
         )}
       </div>
     </div>
