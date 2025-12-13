@@ -34,7 +34,17 @@ interface Token {
   logoUrl?: string;
   priceSource?: PriceSource;
   priceTimestamp?: number;
+  type?: string;
 }
+
+const isNFTToken = (token: Token, nftAddresses: Set<string>): boolean => {
+  const addressLower = token.contractAddress.toLowerCase();
+  if (nftAddresses.has(addressLower)) return true;
+  if (isNFTBySymbol(token.symbol || '')) return true;
+  const tokenType = (token.type || '').toUpperCase();
+  if (tokenType.includes('ERC-721') || tokenType.includes('ERC-1155') || tokenType === 'ERC721' || tokenType === 'ERC1155') return true;
+  return false;
+};
 
 interface NFTItem {
   tokenId: string;
@@ -214,7 +224,7 @@ function savePortfolioHistory(walletAddress: string, history: PortfolioHistoryEn
 
 function getTokenPriceChange(tokenAddress: string, currentValue: number, priceHistory: TokenPriceHistory, timeRangeHours: number = 24): { absoluteDelta: number; percentageDelta: number } | null {
   const history = priceHistory[tokenAddress.toLowerCase()];
-  if (!history || history.length < 2) return null;
+  if (!history || history.length < 1) return null;
   
   const now = Date.now();
   const cutoff = now - timeRangeHours * 60 * 60 * 1000;
@@ -223,6 +233,8 @@ function getTokenPriceChange(tokenAddress: string, currentValue: number, priceHi
   let oldValue: number;
   if (oldEntries.length > 0) {
     oldValue = oldEntries[oldEntries.length - 1].value;
+  } else if (history.length >= 2) {
+    oldValue = history[history.length - 2].value;
   } else {
     oldValue = history[0].value;
   }
@@ -237,7 +249,7 @@ function getTokenPriceChange(tokenAddress: string, currentValue: number, priceHi
 
 function getTokenPriceOscillation(tokenAddress: string, currentPrice: number, priceHistory: TokenPriceHistory, timeRangeHours: number = 24): { absoluteDelta: number; percentageDelta: number } | null {
   const history = priceHistory[tokenAddress.toLowerCase()];
-  if (!history || history.length < 2) return null;
+  if (!history || history.length < 1) return null;
   
   const now = Date.now();
   const cutoff = now - timeRangeHours * 60 * 60 * 1000;
@@ -246,6 +258,8 @@ function getTokenPriceOscillation(tokenAddress: string, currentPrice: number, pr
   let oldPrice: number;
   if (oldEntries.length > 0) {
     oldPrice = oldEntries[oldEntries.length - 1].price;
+  } else if (history.length >= 2) {
+    oldPrice = history[history.length - 2].price;
   } else {
     oldPrice = history[0].price;
   }
@@ -646,8 +660,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         }
         
         const regularTokens = tokensWithBalances.filter(t => 
-          !currentNftAddresses?.has(t.contractAddress.toLowerCase()) &&
-          !isNFTBySymbol(t.symbol || '')
+          !isNFTToken(t, currentNftAddresses || new Set())
         );
         
         setLoadingProgress({ phase: 'Loading prices', current: 0, total: regularTokens.length });
@@ -691,10 +704,10 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         }
         
         const tokensWithPrices = tokensWithBalances.map(token => {
-          const addressLower = token.contractAddress.toLowerCase();
-          if (currentNftAddresses?.has(addressLower)) {
+          if (isNFTToken(token, currentNftAddresses || new Set())) {
             return { ...token, price: 0, value: 0, priceSource: 'unknown' as PriceSource, priceTimestamp: now };
           }
+          const addressLower = token.contractAddress.toLowerCase();
           const priceInfo = priceMap.get(addressLower);
           const price = priceInfo?.price || 0;
           const value = parseFloat(token.balance || '0') * price;
@@ -718,7 +731,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         }
         
         const priceHistory = loadPriceHistory(walletToDisplay);
-        const nonNftTokens = sortedTokens.filter(t => !currentNftAddresses?.has(t.contractAddress.toLowerCase()));
+        const nonNftTokens = sortedTokens.filter(t => !isNFTToken(t, currentNftAddresses || new Set()));
         for (const token of nonNftTokens) {
           const addr = token.contractAddress.toLowerCase();
           if (!priceHistory[addr]) {
@@ -992,7 +1005,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         <div className="flex items-center gap-6">
           <div className="text-right">
             <span className="text-xs font-mono uppercase text-muted-foreground">Tokens</span>
-            <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase()) && !isNFTBySymbol(t.symbol || '')).length}</p>
+            <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !isNFTToken(t, nftContractAddresses)).length}</p>
           </div>
           <div className="text-right">
             <span className="text-xs font-mono uppercase text-muted-foreground">NFTs</span>
@@ -1033,7 +1046,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
 
         <TabsContent value="tokens" className="mt-0">
           {(() => {
-            const regularTokens = tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase()) && !isNFTBySymbol(t.symbol || ''));
+            const regularTokens = tokens.filter(t => !isNFTToken(t, nftContractAddresses));
             if (regularTokens.length === 0) {
               return (
                 <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
