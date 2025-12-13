@@ -35,8 +35,8 @@ function loadPortfolioHistory(walletAddress: string): PortfolioHistoryEntry[] {
 
 const getIntervalConfig = (): { intervalMs: number; maxPoints: number; cutoffMs: number } => {
   return {
-    intervalMs: 5 * 60 * 1000,
-    maxPoints: 288,
+    intervalMs: 60 * 60 * 1000,
+    maxPoints: 24,
     cutoffMs: 24 * 60 * 60 * 1000
   };
 };
@@ -279,10 +279,7 @@ export function WalletHistoryChart({ currentValue, walletAddress }: WalletHistor
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
-        <span>Updates every 5 minutes</span>
-        {historyData.length > 1 && (
-          <span>{historyData.length} data points (24h)</span>
-        )}
+        <span>Updates every hour</span>
       </div>
     </div>
   );

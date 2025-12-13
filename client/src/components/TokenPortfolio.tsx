@@ -860,9 +860,15 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
             <p className="text-2xl font-display font-bold text-primary" data-testid="text-total-value">{formatValue(getTotalValue())}</p>
           </div>
         </div>
-        <div className="text-right">
-          <span className="text-xs font-mono uppercase text-muted-foreground">Tokens</span>
-          <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !isNFT(t.symbol)).length}</p>
+        <div className="flex items-center gap-6">
+          <div className="text-right">
+            <span className="text-xs font-mono uppercase text-muted-foreground">Tokens</span>
+            <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !isNFT(t.symbol)).length}</p>
+          </div>
+          <div className="text-right">
+            <span className="text-xs font-mono uppercase text-muted-foreground">NFTs</span>
+            <p className="text-xl font-display font-bold text-white" data-testid="text-nft-count">{tokens.filter(t => isNFT(t.symbol)).length}</p>
+          </div>
         </div>
       </div>
 
@@ -919,6 +925,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                     <TableRow className="border-white/5 hover:bg-transparent">
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs">Token</TableHead>
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Price</TableHead>
+                      <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">24h Change</TableHead>
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Amount</TableHead>
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">USD Value</TableHead>
                     </TableRow>
@@ -966,6 +973,24 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
+                          {(() => {
+                            const priceChange = calculateTokenPriceOscillation(token.price || 0, token.contractAddress);
+                            if (!priceChange || (Math.abs(priceChange.absoluteDelta) < 0.0001 && Math.abs(priceChange.percentageDelta) < 0.01)) {
+                              return <span className="text-sm font-mono text-muted-foreground">-</span>;
+                            }
+                            const isPositive = priceChange.percentageDelta >= 0;
+                            const absStr = Math.abs(priceChange.absoluteDelta) < 0.01 
+                              ? '<$0.01' 
+                              : `$${Math.abs(priceChange.absoluteDelta).toFixed(4)}`;
+                            return (
+                              <div className={`text-sm font-mono ${isPositive ? 'text-green-500' : 'text-red-500'}`} data-testid={`text-change-${token.contractAddress}`}>
+                                <span>{isPositive ? '+' : '-'}{absStr}</span>
+                                <span className="ml-1">({isPositive ? '+' : ''}{priceChange.percentageDelta.toFixed(2)}%)</span>
+                              </div>
+                            );
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-right">
                           <span className="text-sm font-mono text-white" data-testid={`text-balance-${token.contractAddress}`}>
                             {formatBalance(token.balance || '0')}
                           </span>
@@ -1007,7 +1032,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
                     <TableRow className="border-white/5 hover:bg-transparent">
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs">NFT</TableHead>
                       <TableHead className="text-muted-foreground font-mono uppercase text-xs">Collection Name</TableHead>
-                      <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Amount</TableHead>
+                      <TableHead className="text-muted-foreground font-mono uppercase text-xs text-right">Qty</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
