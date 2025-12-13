@@ -88,7 +88,15 @@ const POOL_FACTORY_ADDRESS = "0x34A0b64a88BBd4Bf6Acba8a0Ff8F27c8aDD67E9C";
 
 const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'UST', 'FRAX', 'TUSD', 'GUSD', 'USDP', 'SUSD'];
 
-const NFT_SYMBOLS = ['ATCL', 'ZKCODEX', 'GM', 'INAME', 'ARCSBT', 'AXO'];
+const NFT_SYMBOLS = [
+  'ATCL', 'ZKCODEX', 'GM', 'INAME', 'ARCSBT', 'AXO',
+  'LIPEONE', 'LIPETWO', 'LIPETHREE', 'BN', 'ET', 'MC',
+  'MATI', 'MI', 'ER', 'DBM', 'PARC'
+];
+
+const isNFTBySymbol = (symbol: string): boolean => {
+  return NFT_SYMBOLS.includes(symbol.toUpperCase());
+};
 
 const TOKEN_LOGOS: Record<string, string> = {
   'sacs': sacsLogo,
@@ -638,7 +646,8 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         }
         
         const regularTokens = tokensWithBalances.filter(t => 
-          !currentNftAddresses?.has(t.contractAddress.toLowerCase())
+          !currentNftAddresses?.has(t.contractAddress.toLowerCase()) &&
+          !isNFTBySymbol(t.symbol || '')
         );
         
         setLoadingProgress({ phase: 'Loading prices', current: 0, total: regularTokens.length });
@@ -983,7 +992,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
         <div className="flex items-center gap-6">
           <div className="text-right">
             <span className="text-xs font-mono uppercase text-muted-foreground">Tokens</span>
-            <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase())).length}</p>
+            <p className="text-xl font-display font-bold text-white" data-testid="text-token-count">{tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase()) && !isNFTBySymbol(t.symbol || '')).length}</p>
           </div>
           <div className="text-right">
             <span className="text-xs font-mono uppercase text-muted-foreground">NFTs</span>
@@ -1024,7 +1033,7 @@ export function TokenPortfolio({ account, searchedWallet, wrongNetwork }: TokenP
 
         <TabsContent value="tokens" className="mt-0">
           {(() => {
-            const regularTokens = tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase()));
+            const regularTokens = tokens.filter(t => !nftContractAddresses.has(t.contractAddress.toLowerCase()) && !isNFTBySymbol(t.symbol || ''));
             if (regularTokens.length === 0) {
               return (
                 <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
