@@ -105,3 +105,9 @@ Preferred communication style: Simple, everyday language.
     - Shows percentage and absolute value changes
     - LocalStorage persistence for historical data
     - Similar to DeBank's net worth chart
+  - **Performance & Accuracy Improvements (Dec 13, 2025)**:
+    - Optimized request timing: Faster loading with sequential requests (300ms delay between API calls)
+    - Real price history tracking: Token USD VALUE variations now use localStorage-based historical data (24h comparisons)
+    - Real chart data: Portfolio chart now displays actual historical snapshots instead of mock data
+    - History stored in localStorage: `portfolio_history_{wallet}` and `token_price_history_{wallet}`
+    - Charts build up real data over time as user refreshes the page

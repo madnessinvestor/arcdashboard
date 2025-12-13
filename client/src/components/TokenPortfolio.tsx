@@ -114,10 +114,10 @@ interface PriceCache {
 
 const priceCache: PriceCache = {};
 const CACHE_DURATION = 30000;
-const REQUEST_DELAY = 200;
+const REQUEST_DELAY = 300;
 const MAX_RETRIES = 2;
-const INITIAL_DELAY = 100;
-const BALANCE_DELAY = 120;
+const INITIAL_DELAY = 150;
+const BALANCE_DELAY = 200;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
